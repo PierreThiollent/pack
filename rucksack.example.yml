@@ -1,0 +1,10 @@
+models:
+  mon_site:
+    databases:
+      ma_db_mysql:
+        type: mysql
+        host: localhost
+        port: 3306
+        database: myapp_prod
+        username: root
+        password: s3cr3t

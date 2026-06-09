@@ -17,12 +17,17 @@ pub struct Model {
     pub databases: HashMap<String, DatabaseConfig>,
 }
 
-/// Configuration for a single database
+/// Configuration for a database — the `type` field determines which variant is used
 #[derive(Debug, Deserialize)]
-pub struct DatabaseConfig {
-    /// Database type (e.g. "mysql", "postgresql", "redis")
-    #[serde(rename = "type")]
-    pub db_type: String,
+#[serde(tag = "type")]
+pub enum DatabaseConfig {
+    #[serde(rename = "mysql")]
+    MySQL(MySQLConfig),
+}
+
+/// Configuration specific to MySQL
+#[derive(Debug, Deserialize)]
+pub struct MySQLConfig {
     #[serde(default = "default_host")]
     pub host: String,
     pub port: Option<u16>,
@@ -40,42 +45,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parse_config_with_one_model() {
-        let yaml = r#"
-models:
-  my_app:
-    databases:
-      my_db:
-        type: mysql
-"#;
-
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
-
-        assert_eq!(config.models.len(), 1);
-
-        let model = config.models.get("my_app").unwrap();
-        assert_eq!(model.databases.len(), 1);
-
-        let db = model.databases.get("my_db").unwrap();
-        assert_eq!(db.db_type, "mysql");
-    }
-
-    #[test]
-    fn parse_config_without_databases() {
-        let yaml = r#"
-models:
-  my_app:
-    databases: {}
-"#;
-
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
-
-        let model = config.models.get("my_app").unwrap();
-        assert!(model.databases.is_empty());
-    }
-
-    #[test]
-    fn parse_mysql_config_with_all_fields() {
+    fn parse_mysql_with_all_fields() {
         let yaml = r#"
 models:
   my_app:
@@ -90,18 +60,27 @@ models:
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        let db = &config.models.get("my_app").unwrap().databases["my_db"];
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
 
-        assert_eq!(db.db_type, "mysql");
-        assert_eq!(db.host, "db.example.com");
-        assert_eq!(db.port, Some(3307));
-        assert_eq!(db.database.as_deref(), Some("my_production_db"));
-        assert_eq!(db.username.as_deref(), Some("root"));
-        assert_eq!(db.password.as_deref(), Some("secret123"));
+        match db {
+            DatabaseConfig::MySQL(cfg) => {
+                assert_eq!(cfg.host, "db.example.com");
+                assert_eq!(cfg.port, Some(3307));
+                assert_eq!(cfg.database.as_deref(), Some("my_production_db"));
+                assert_eq!(cfg.username.as_deref(), Some("root"));
+                assert_eq!(cfg.password.as_deref(), Some("secret123"));
+            }
+        }
     }
 
     #[test]
-    fn parse_mysql_config_with_default_host() {
+    fn parse_mysql_with_default_host() {
         let yaml = r#"
 models:
   my_app:
@@ -111,21 +90,73 @@ models:
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
-        let db = &config.models.get("my_app").unwrap().databases["my_db"];
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
 
-        assert_eq!(db.host, "localhost");
-        assert_eq!(db.port, None);
-        assert_eq!(db.database, None);
+        match db {
+            DatabaseConfig::MySQL(cfg) => {
+                assert_eq!(cfg.host, "localhost");
+                assert_eq!(cfg.port, None);
+                assert_eq!(cfg.database, None);
+            }
+        }
     }
 
     #[test]
-    fn parse_invalid_yaml_missing_field() {
+    fn parse_invalid_yaml_missing_type() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        host: localhost
+"#;
+
+        let result = serde_yaml::from_str::<Config>(yaml);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_invalid_yaml_unknown_type() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+"#;
+
+        let result = serde_yaml::from_str::<Config>(yaml);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_config_without_databases() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let model = config.models.get("my_app").unwrap();
+        assert!(model.databases.is_empty());
+    }
+
+    #[test]
+    fn parse_invalid_yaml_missing_models() {
         let yaml = r#"
 foo: bar
 "#;
 
         let result = serde_yaml::from_str::<Config>(yaml);
-
         assert!(result.is_err());
     }
 }
