@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+#
+# Pre-commit hook for rucksack
+# - Checks that staged Rust files have no unstaged changes (coherency)
+# - Runs cargo fmt --all and re-stages formatted files
+#
+
+set -eu
+
+staged_rust_files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.rs')
+
+if [ -z "$staged_rust_files" ]; then
+  exit 0
+fi
+
+# Ensure no unstaged changes in the files we're about to format
+if ! echo "$staged_rust_files" | xargs git diff --quiet --; then
+  echo "pre-commit: staged Rust files have unstaged changes." >&2
+  echo "Please stage or stash those changes, then commit again." >&2
+  exit 1
+fi
+
+echo "pre-commit: running cargo fmt --all"
+cargo fmt --all
+
+echo "$staged_rust_files" | xargs git add --
