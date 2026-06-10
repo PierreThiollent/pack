@@ -62,9 +62,9 @@ mod tests {
     fn make_config() -> Config {
         let mysql = MySQLConfig {
             host: "localhost".to_string(),
-            port: None,
+            port: 3306,
             database: "test".to_string(),
-            username: Some("root".to_string()),
+            username: "root".to_string(),
             password: Some("pass".to_string()),
         };
 

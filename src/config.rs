@@ -29,14 +29,24 @@ pub enum DatabaseConfig {
 pub struct MySQLConfig {
     #[serde(default = "default_host")]
     pub host: String,
-    pub port: Option<u16>,
+    #[serde(default = "default_mysql_port")]
+    pub port: u16,
     pub database: String,
-    pub username: Option<String>,
+    #[serde(default = "default_mysql_username")]
+    pub username: String,
     pub password: Option<String>,
 }
 
 fn default_host() -> String {
     "localhost".to_string()
+}
+
+fn default_mysql_port() -> u16 {
+    3306
+}
+
+fn default_mysql_username() -> String {
+    "root".to_string()
 }
 
 /// Get the user's home directory.
@@ -100,9 +110,9 @@ models:
         match db {
             DatabaseConfig::MySQL(cfg) => {
                 assert_eq!(cfg.host, "db.example.com");
-                assert_eq!(cfg.port, Some(3307));
+                assert_eq!(cfg.port, 3307);
                 assert_eq!(cfg.database, "my_production_db");
-                assert_eq!(cfg.username.as_deref(), Some("root"));
+                assert_eq!(cfg.username, "root");
                 assert_eq!(cfg.password.as_deref(), Some("secret123"));
             }
         }
@@ -131,7 +141,7 @@ models:
         match db {
             DatabaseConfig::MySQL(cfg) => {
                 assert_eq!(cfg.host, "localhost");
-                assert_eq!(cfg.port, None);
+                assert_eq!(cfg.port, 3306);
                 assert_eq!(cfg.database, "");
             }
         }

@@ -33,16 +33,14 @@ impl<'a> MySQL<'a> {
         args.push("--host".to_string());
         args.push(self.config.host.clone());
 
-        // Port — only add if explicitly configured
-        if let Some(port) = self.config.port {
-            args.push("--port".to_string());
-            args.push(port.to_string());
-        }
+        // Port (default 3306 from config.rs)
+        args.push("--port".to_string());
+        args.push(self.config.port.to_string());
 
         // Authentication
-        if let Some(ref username) = self.config.username {
+        if !self.config.username.is_empty() {
             args.push("-u".to_string());
-            args.push(username.clone());
+            args.push(self.config.username.clone());
         }
         if let Some(ref password) = self.config.password {
             // mysqldump accepts -pPASSWORD without space
@@ -88,9 +86,9 @@ mod tests {
     fn make_config(overrides: impl FnOnce(&mut MySQLConfig)) -> MySQLConfig {
         let mut config = MySQLConfig {
             host: "localhost".to_string(),
-            port: None,
+            port: 3306,
             database: "testdb".to_string(),
-            username: Some("root".to_string()),
+            username: "root".to_string(),
             password: Some("secret".to_string()),
         };
         overrides(&mut config);
@@ -101,7 +99,7 @@ mod tests {
     fn build_args_uses_given_host_and_port() {
         let config = make_config(|c| {
             c.host = "db.example.com".to_string();
-            c.port = Some(3307);
+            c.port = 3307;
         });
         let mysql = MySQL::new(&config, "/tmp/dumps");
 
@@ -113,15 +111,13 @@ mod tests {
     }
 
     #[test]
-    fn build_args_omits_port_when_not_set() {
-        let config = make_config(|c| c.port = None);
+    fn build_args_uses_default_port() {
+        let config = make_config(|_| {});
         let mysql = MySQL::new(&config, "/tmp/dumps");
 
         let args = mysql.build_args();
-        assert!(
-            !args.contains(&"--port".to_string()),
-            "Should not add --port when port is None"
-        );
+        assert!(args.contains(&"--port".to_string()));
+        assert!(args.contains(&"3306".to_string()));
     }
 
     #[test]
@@ -140,7 +136,7 @@ mod tests {
     #[test]
     fn build_args_omits_auth_when_not_configured() {
         let config = make_config(|c| {
-            c.username = None;
+            c.username = String::new();
             c.password = None;
         });
         let mysql = MySQL::new(&config, "/tmp/dumps");
