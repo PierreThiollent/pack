@@ -1,23 +1,40 @@
 mod config;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser, Subcommand};
 
 /// Rucksack 🎒 — Backup tool written in Rust
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
     /// Path to config file (default: ~/.rucksack/rucksack.yml)
-    #[arg(short = 'c', long)]
+    #[arg(short = 'c', long, global = true)]
     config: Option<String>,
+
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Debug, Subcommand)]
+enum Commands {
+    /// Run backup jobs now
+    Perform,
 }
 
 fn main() {
     let cli = Cli::parse();
 
-    let config_path = config::resolve_config_path(cli.config);
-    let config = config::load_config(&config_path);
-
-    println!("Loaded {} model(s)", config.models.len());
+    match cli.command {
+        Some(Commands::Perform) => {
+            let config_path = config::resolve_config_path(cli.config);
+            let _config = config::load_config(&config_path);
+            println!("Perform: coming soon!");
+        }
+        None => {
+            // No subcommand → show help
+            Cli::command().print_help().unwrap();
+            println!();
+        }
+    }
 }
 
 #[cfg(test)]
