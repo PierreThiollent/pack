@@ -1,6 +1,5 @@
-use std::collections::HashMap;
-
 use serde::Deserialize;
+use std::collections::HashMap;
 
 /// Entry point of the YAML configuration file
 #[derive(Debug, Deserialize)]
@@ -38,6 +37,36 @@ pub struct MySQLConfig {
 
 fn default_host() -> String {
     "localhost".to_string()
+}
+
+/// Get the user's home directory.
+fn home_dir() -> String {
+    std::env::var("HOME").expect("Could not find HOME environment variable")
+}
+
+/// Resolve the config file path.
+/// If `config_arg` is `Some`, use it (with tilde expansion).
+/// Otherwise, default to `$HOME/.rucksack/rucksack.yml`.
+pub fn resolve_config_path(config_arg: Option<String>) -> String {
+    let path = config_arg.unwrap_or_else(|| format!("{}/.rucksack/rucksack.yml", home_dir()));
+    // Expand leading tilde (e.g. ~/foo → $HOME/foo)
+    match path.strip_prefix("~/") {
+        Some(rest) => format!("{}/{rest}", home_dir()),
+        None => path,
+    }
+}
+
+/// Load and parse the config file from the given path.
+/// Exits the process with an error message on failure.
+pub fn load_config(path: &str) -> Config {
+    let yaml_content = std::fs::read_to_string(path).unwrap_or_else(|e| {
+        eprintln!("Error reading config file {path}: {e}");
+        std::process::exit(1);
+    });
+    serde_yaml::from_str(&yaml_content).unwrap_or_else(|e| {
+        eprintln!("Error parsing config file {path}: {e}");
+        std::process::exit(1);
+    })
 }
 
 #[cfg(test)]
@@ -158,5 +187,31 @@ foo: bar
 
         let result = serde_yaml::from_str::<Config>(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn resolve_default_config_path() {
+        let home = std::env::var("HOME").unwrap();
+        let path = resolve_config_path(None);
+        assert_eq!(path, format!("{home}/.rucksack/rucksack.yml"));
+    }
+
+    #[test]
+    fn resolve_config_path_with_tilde() {
+        let home = std::env::var("HOME").unwrap();
+        let path = resolve_config_path(Some("~/custom/path.yml".to_string()));
+        assert_eq!(path, format!("{home}/custom/path.yml"));
+    }
+
+    #[test]
+    fn resolve_config_path_absolute() {
+        let path = resolve_config_path(Some("/etc/rucksack.yml".to_string()));
+        assert_eq!(path, "/etc/rucksack.yml");
+    }
+
+    #[test]
+    fn resolve_config_path_relative() {
+        let path = resolve_config_path(Some("./local.yml".to_string()));
+        assert_eq!(path, "./local.yml");
     }
 }
