@@ -30,7 +30,7 @@ pub struct MySQLConfig {
     #[serde(default = "default_host")]
     pub host: String,
     pub port: Option<u16>,
-    pub database: Option<String>,
+    pub database: String,
     pub username: Option<String>,
     pub password: Option<String>,
 }
@@ -101,7 +101,7 @@ models:
             DatabaseConfig::MySQL(cfg) => {
                 assert_eq!(cfg.host, "db.example.com");
                 assert_eq!(cfg.port, Some(3307));
-                assert_eq!(cfg.database.as_deref(), Some("my_production_db"));
+                assert_eq!(cfg.database, "my_production_db");
                 assert_eq!(cfg.username.as_deref(), Some("root"));
                 assert_eq!(cfg.password.as_deref(), Some("secret123"));
             }
@@ -116,6 +116,7 @@ models:
     databases:
       my_db:
         type: mysql
+        database: ""
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -131,7 +132,7 @@ models:
             DatabaseConfig::MySQL(cfg) => {
                 assert_eq!(cfg.host, "localhost");
                 assert_eq!(cfg.port, None);
-                assert_eq!(cfg.database, None);
+                assert_eq!(cfg.database, "");
             }
         }
     }
