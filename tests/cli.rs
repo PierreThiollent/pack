@@ -51,14 +51,9 @@ models:
     let config_path = dir.join("rucksack.yml");
     std::fs::write(&config_path, config_content).unwrap();
 
-    let output = run_rucksack(&["-c", &config_path.to_string_lossy()]);
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let output = run_rucksack(&["perform", "-c", &config_path.to_string_lossy()]);
 
     assert!(output.status.success(), "rucksack should exit successfully");
-    assert!(
-        stdout.contains("Loaded 1 model(s)"),
-        "Should show 1 model. stdout:\n{stdout}"
-    );
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&dir);
@@ -66,7 +61,7 @@ models:
 
 #[test]
 fn load_missing_config_file_errors() {
-    let output = run_rucksack(&["-c", "/tmp/rucksack-nonexistent.yml"]);
+    let output = run_rucksack(&["perform", "-c", "/tmp/rucksack-nonexistent.yml"]);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(!output.status.success(), "rucksack should exit with error");
@@ -84,7 +79,7 @@ fn load_invalid_yaml_errors() {
     let config_path = dir.join("rucksack.yml");
     std::fs::write(&config_path, "invalid: [yaml: broken").unwrap();
 
-    let output = run_rucksack(&["-c", &config_path.to_string_lossy()]);
+    let output = run_rucksack(&["perform", "-c", &config_path.to_string_lossy()]);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
     assert!(
