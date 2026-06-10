@@ -1,8 +1,9 @@
 mod config;
+mod database;
 
 use clap::{CommandFactory, Parser, Subcommand};
 
-/// Rucksack 🎒 — Backup tool written in Rust
+/// Rucksack 🎒 — Backup tool written in Rust 🦀
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
