@@ -1,11 +1,11 @@
-# Rucksack 🎒 — Rebirth of GoBackup in Rust
+# rbak — Backup tool in Rust
 
-**Objectif** : Réécrire [GoBackup](https://gobackup.github.io/) en Rust pour apprendre le langage tout en produisant un outil fonctionnel.
+**Objectif** : Construire un outil de sauvegarde en Rust pour apprendre le langage tout en produisant un binaire fonctionnel.
 
 ## Architecture cible
 
 ```
-rucksack/
+rbak/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs              # Entrypoint CLI
@@ -67,8 +67,8 @@ rucksack/
 Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, capable de sauvegarder une base de données locale vers un stockage local ou FTP avec compression.
 
 ### CLI
-- [ ] Binaire `rucksack` avec sous-commandes : `perform`, `help`
-- [ ] Chargement de la config depuis `~/.rucksack/rucksack.yml` ou chemin explicite `-c`
+- [ ] Binaire `rbak` avec sous-commandes : `perform`, `help`
+- [ ] Chargement de la config depuis `~/.rbak/rbak.yml` ou chemin explicite `-c`
 - [ ] Parsing YAML de la config (models → databases → storages → compress_with)
 
 ### Modèle / Pipeline
@@ -96,7 +96,7 @@ Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, 
 
 ### Schedule
 - [ ] `before_script` et `after_script` exécutés en shell
-- [ ] Pas encore de daemon : `rucksack perform` exécute une seule fois
+- [ ] Pas encore de daemon : `rbak perform` exécute une seule fois
 
 ### Tests
 - [ ] Tests unitaires pour le parsing de config
@@ -124,14 +124,14 @@ Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, 
 - [ ] Compression : `tbz2` (bzip2) et `txz` (xz/lzma)
 - [ ] **Encrypt** : chiffrement du fichier avant upload (crate `age` — natif Rust, moderne)
 - [ ] **Splitter** : découpage en chunks de `chunk_size` avec extension `-NNN`
-- [ ] **Cycler** : `keep: N` → lecture/écriture de `~/.rucksack/cycler.json`, purge des backups les plus anciens
+- [ ] **Cycler** : `keep: N` → lecture/écriture de `~/.rbak/cycler.json`, purge des backups les plus anciens
 
 ---
 
 ## v0.4.0 — Daemon + Schedule + Signals
 
-- [ ] Sous-commande `rucksack start` → daemon en arrière-plan
-- [ ] Sous-commande `rucksack run` → premier plan
+- [ ] Sous-commande `rbak start` → daemon en arrière-plan
+- [ ] Sous-commande `rbak run` → premier plan
 - [ ] **Scheduler intégré** : cron (`5 4 * * sun`) OU intervalle (`every: 1day`, `at: 04:05`)
 - [ ] **Signal handling** : SIGHUP → reload config, SIGQUIT/SIGTERM → graceful shutdown
 - [ ] PID file pour tracking du daemon

@@ -163,7 +163,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rucksack"
+name = "rbak"
 version = "0.1.0"
 dependencies = [
  "clap",

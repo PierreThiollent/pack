@@ -41,10 +41,10 @@ fn run_model_databases(model: &Model, dump_dir: &PathBuf) -> Result<(), String> 
 
 /// Create a temporary directory for a model's dump files.
 ///
-/// Path: `{system_temp_dir}/rucksack/{model_name}/`
+/// Path: `{system_temp_dir}/rbak/{model_name}/`
 fn create_dump_dir(model_name: &str) -> Result<PathBuf, String> {
     let mut dir = std::env::temp_dir();
-    dir.push("rucksack");
+    dir.push("rbak");
     dir.push(model_name);
 
     std::fs::create_dir_all(&dir)
@@ -89,7 +89,7 @@ mod tests {
 
         // Verify the dump directory no longer exists
         let mut dump_dir = std::env::temp_dir();
-        dump_dir.push("rucksack");
+        dump_dir.push("rbak");
         dump_dir.push("my_app");
         assert!(!dump_dir.exists(), "Dump directory should be cleaned up");
     }
@@ -101,6 +101,8 @@ mod tests {
         assert!(dir.is_dir(), "Path should be a directory");
 
         // Cleanup
-        let _ = std::fs::remove_dir_all(&dir);
+        if let Err(error) = std::fs::remove_dir_all(&dir) {
+            panic!("Failed to clean up test directory {dir:?}: {error}");
+        }
     }
 }
