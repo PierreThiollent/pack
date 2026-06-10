@@ -46,9 +46,9 @@ fn home_dir() -> String {
 
 /// Resolve the config file path.
 /// If `config_arg` is `Some`, use it (with tilde expansion).
-/// Otherwise, default to `$HOME/.rucksack/rucksack.yml`.
+/// Otherwise, default to `$HOME/.rbak/rbak.yml`.
 pub fn resolve_config_path(config_arg: Option<String>) -> String {
-    let path = config_arg.unwrap_or_else(|| format!("{}/.rucksack/rucksack.yml", home_dir()));
+    let path = config_arg.unwrap_or_else(|| format!("{}/.rbak/rbak.yml", home_dir()));
     // Expand leading tilde (e.g. ~/foo → $HOME/foo)
     match path.strip_prefix("~/") {
         Some(rest) => format!("{}/{rest}", home_dir()),
@@ -194,7 +194,7 @@ foo: bar
     fn resolve_default_config_path() {
         let home = std::env::var("HOME").unwrap();
         let path = resolve_config_path(None);
-        assert_eq!(path, format!("{home}/.rucksack/rucksack.yml"));
+        assert_eq!(path, format!("{home}/.rbak/rbak.yml"));
     }
 
     #[test]
@@ -206,8 +206,8 @@ foo: bar
 
     #[test]
     fn resolve_config_path_absolute() {
-        let path = resolve_config_path(Some("/etc/rucksack.yml".to_string()));
-        assert_eq!(path, "/etc/rucksack.yml");
+        let path = resolve_config_path(Some("/etc/rbak.yml".to_string()));
+        assert_eq!(path, "/etc/rbak.yml");
     }
 
     #[test]
