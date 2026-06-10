@@ -1,5 +1,6 @@
 mod config;
 mod database;
+mod model;
 
 use clap::{CommandFactory, Parser, Subcommand};
 
@@ -27,8 +28,11 @@ fn main() {
     match cli.command {
         Some(Commands::Perform) => {
             let config_path = config::resolve_config_path(cli.config);
-            let _config = config::load_config(&config_path);
-            println!("Perform: coming soon!");
+            let config = config::load_config(&config_path);
+            if let Err(e) = model::run_all(&config) {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
         }
         None => {
             // No subcommand → show help
