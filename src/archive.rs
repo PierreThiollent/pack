@@ -62,15 +62,34 @@ fn append_include(builder: &mut tar::Builder<File>, include: &str) -> Result<(),
         return Err(format!("Archive include does not exist: {source_path:?}"));
     }
 
+    append_path(builder, &source_path)
+}
+
+fn append_path(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
     if source_path.is_dir() {
-        return Err(format!(
-            "Archive include directories are not supported yet: {source_path:?}"
-        ));
+        append_directory(builder, source_path)
+    } else {
+        append_file(builder, source_path)
+    }
+}
+
+fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
+    for entry in std::fs::read_dir(source_path)
+        .map_err(|error| format!("Failed to read archive directory {source_path:?}: {error}"))?
+    {
+        let entry = entry.map_err(|error| {
+            format!("Failed to read archive directory entry in {source_path:?}: {error}")
+        })?;
+        append_path(builder, &entry.path())?;
     }
 
-    let archive_entry_path = archive_entry_path(&source_path);
+    Ok(())
+}
+
+fn append_file(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
+    let archive_entry_path = archive_entry_path(source_path);
     builder
-        .append_path_with_name(&source_path, &archive_entry_path)
+        .append_path_with_name(source_path, &archive_entry_path)
         .map_err(|error| {
             format!(
                 "Failed to add archive include {source_path:?} as {archive_entry_path:?}: {error}"
@@ -162,16 +181,51 @@ mod tests {
         assert!(result.is_err());
     }
 
+    fn archive_entry_paths(dump_directory: &Path) -> Vec<PathBuf> {
+        let archive_file = File::open(dump_directory.join(ARCHIVE_FILE_NAME)).unwrap();
+        let mut archive = tar::Archive::new(archive_file);
+        let mut entry_paths = Vec::new();
+        for entry in archive.entries().unwrap() {
+            let entry = entry.unwrap();
+            entry_paths.push(entry.path().unwrap().into_owned());
+        }
+        entry_paths
+    }
+
     #[test]
-    fn run_with_directory_include_returns_error() {
+    fn run_with_directory_include_stores_directory_files_in_archive() {
         let source_directory = tempfile::tempdir().unwrap();
         let dump_directory = tempfile::tempdir().unwrap();
+        std::fs::write(source_directory.path().join("config.yml"), "hello archive").unwrap();
         let source_directory_string = source_directory.path().to_string_lossy();
         let config = make_config(vec![&source_directory_string], vec![]);
 
         let result = run(Some(&config), dump_directory.path());
 
-        assert!(result.is_err());
+        assert!(result.is_ok());
+        let entry_paths = archive_entry_paths(dump_directory.path());
+        assert!(entry_paths.iter().any(|path| path.ends_with("config.yml")));
+    }
+
+    #[test]
+    fn run_with_directory_include_stores_nested_files_in_archive() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let dump_directory = tempfile::tempdir().unwrap();
+        let nested_directory = source_directory.path().join("nested");
+        std::fs::create_dir_all(&nested_directory).unwrap();
+        std::fs::write(nested_directory.join("config.yml"), "nested archive").unwrap();
+        let source_directory_string = source_directory.path().to_string_lossy();
+        let config = make_config(vec![&source_directory_string], vec![]);
+
+        let result = run(Some(&config), dump_directory.path());
+
+        assert!(result.is_ok());
+        let entry_paths = archive_entry_paths(dump_directory.path());
+        assert!(
+            entry_paths
+                .iter()
+                .any(|path| path.ends_with("nested/config.yml"))
+        );
     }
 
     #[test]
@@ -200,13 +254,7 @@ mod tests {
 
         run(Some(&config), dump_directory.path()).unwrap();
 
-        let archive_file = File::open(dump_directory.path().join(ARCHIVE_FILE_NAME)).unwrap();
-        let mut archive = tar::Archive::new(archive_file);
-        let mut entry_paths = Vec::new();
-        for entry in archive.entries().unwrap() {
-            let entry = entry.unwrap();
-            entry_paths.push(entry.path().unwrap().into_owned());
-        }
+        let entry_paths = archive_entry_paths(dump_directory.path());
 
         assert!(entry_paths.iter().any(|path| path.ends_with("config.yml")));
     }
