@@ -42,6 +42,37 @@
       Comme GoBackup, permettre `$MYSQL_PASSWORD` ou `${MYSQL_PASSWORD}` dans la config,
       pour éviter de stocker les secrets en clair.
 
+## Gestion d’erreurs
+
+- [ ] Remplacer progressivement `Result<T, String>` par un type d’erreur projet
+      Aujourd’hui les erreurs sont de simples chaînes. C’est simple pour apprendre, mais à terme
+      on veut des erreurs typées, plus faciles à maintenir et à enrichir.
+
+- [ ] Ajouter un module `src/error.rs`
+      S’inspirer de Spacebot :
+      `pub type Result<T> = std::result::Result<T, Error>;`
+      puis utiliser `crate::error::Result<T>` dans les modules.
+
+- [ ] Ajouter `thiserror`
+      Définir une enum principale, par exemple :
+      - `Config`
+      - `Database`
+      - `Archive`
+      - `Storage`
+      - `Io(#[from] std::io::Error)`
+      - `Process`
+
+- [ ] Évaluer si `anyhow` est utile
+      `thiserror` est adapté pour les erreurs structurées du projet.
+      `anyhow` peut être utile pour ajouter rapidement du contexte dans un binaire CLI,
+      mais on peut commencer avec `thiserror` seul.
+
+- [ ] Faire cette refacto au bon moment
+      Pas maintenant au milieu de l’archive. Bon moment possible :
+      - après l’archive complète
+      - avant compression
+      - ou avant FTP/SFTP, quand les erreurs réseau/process deviendront plus nombreuses.
+
 ## Renommer le nom du CLI
 
 - [x] Renommer le projet et le binaire en `rbak`
