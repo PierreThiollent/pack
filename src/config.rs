@@ -18,6 +18,10 @@ pub struct Model {
     /// Databases to back up, keyed by name
     #[serde(default)]
     pub databases: HashMap<String, DatabaseConfig>,
+
+    /// Storages where backups will be copied or uploaded, keyed by name
+    #[serde(default)]
+    pub storages: HashMap<String, StorageConfig>,
 }
 
 /// Configuration for a database — the `type` field determines which variant is used
@@ -26,6 +30,20 @@ pub struct Model {
 pub enum DatabaseConfig {
     #[serde(rename = "mysql")]
     MySQL(MySQLConfig),
+}
+
+/// Configuration for a storage — the `type` field determines which variant is used
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum StorageConfig {
+    #[serde(rename = "local")]
+    Local(LocalConfig),
+}
+
+/// Configuration specific to local storage
+#[derive(Debug, Deserialize)]
+pub struct LocalConfig {
+    pub path: String,
 }
 
 /// Configuration specific to MySQL
@@ -206,6 +224,62 @@ models:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let model = config.models.get("my_app").unwrap();
         assert!(model.databases.is_empty());
+    }
+
+    #[test]
+    fn parse_local_storage() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      local_backup:
+        type: local
+        path: ~/Desktop/rbak-backups
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("local_backup")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Local(local_config) => {
+                assert_eq!(local_config.path, "~/Desktop/rbak-backups");
+            }
+        }
+    }
+
+    #[test]
+    fn parse_config_without_storages() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let model = config.models.get("my_app").unwrap();
+        assert!(model.storages.is_empty());
+    }
+
+    #[test]
+    fn parse_invalid_yaml_unknown_storage_type() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: s3
+        path: somewhere
+"#;
+
+        let result = serde_yaml::from_str::<Config>(yaml);
+
+        assert!(result.is_err());
     }
 
     #[test]

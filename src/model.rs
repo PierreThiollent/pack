@@ -97,6 +97,7 @@ mod tests {
             "my_app".to_string(),
             Model {
                 databases: HashMap::new(),
+                storages: HashMap::new(),
             },
         );
 

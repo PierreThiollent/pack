@@ -10,3 +10,7 @@ models:
         database: myapp_prod
         username: root
         password: s3cr3t
+    storages:
+      local:
+        type: local
+        path: ~/backups/rbak
