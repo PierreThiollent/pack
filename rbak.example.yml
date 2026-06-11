@@ -1,3 +1,5 @@
+workdir: /tmp
+
 models:
   mon_site:
     databases:

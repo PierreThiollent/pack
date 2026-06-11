@@ -1,6 +1,6 @@
-use crate::config::Config;
-use crate::config::Model;
+use crate::config::{Config, Model};
 use crate::database;
+use crate::paths;
 use std::path::PathBuf;
 
 /// Run all backup models from the configuration.
@@ -12,7 +12,7 @@ pub fn run_all(config: &Config) -> Result<(), String> {
     for (name, model) in &config.models {
         println!("Model: {name}");
 
-        let dump_dir = create_dump_dir(name)?;
+        let dump_dir = create_dump_dir(config.workdir.as_deref(), name)?;
 
         // Run the model and capture any error
         let result = run_model_databases(model, &dump_dir);
@@ -41,9 +41,11 @@ fn run_model_databases(model: &Model, dump_dir: &PathBuf) -> Result<(), String> 
 
 /// Create a temporary directory for a model's dump files.
 ///
-/// Path: `{system_temp_dir}/rbak/{model_name}/`
-fn create_dump_dir(model_name: &str) -> Result<PathBuf, String> {
-    let mut dir = std::env::temp_dir();
+/// Path: `{workdir_or_system_temp_dir}/rbak/{model_name}/`
+fn create_dump_dir(workdir: Option<&str>, model_name: &str) -> Result<PathBuf, String> {
+    let mut dir = workdir
+        .map(|path| PathBuf::from(paths::expand_tilde(path)))
+        .unwrap_or_else(std::env::temp_dir);
     dir.push("rbak");
     dir.push(model_name);
 
@@ -74,7 +76,10 @@ mod tests {
         let mut models = HashMap::new();
         models.insert("my_app".to_string(), Model { databases });
 
-        Config { models }
+        Config {
+            workdir: None,
+            models,
+        }
     }
 
     #[test]
@@ -96,13 +101,43 @@ mod tests {
 
     #[test]
     fn create_dump_dir_creates_directory() {
-        let dir = create_dump_dir("test_model").unwrap();
+        let dir = create_dump_dir(None, "test_model").unwrap();
         assert!(dir.exists(), "Directory should exist");
         assert!(dir.is_dir(), "Path should be a directory");
 
         // Cleanup
         if let Err(error) = std::fs::remove_dir_all(&dir) {
             panic!("Failed to clean up test directory {dir:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn create_dump_dir_uses_configured_workdir() {
+        let workdir = std::env::temp_dir().join("rbak-custom-workdir-test");
+        let dir = create_dump_dir(Some(&workdir.to_string_lossy()), "test_model").unwrap();
+
+        assert_eq!(dir, workdir.join("rbak").join("test_model"));
+        assert!(dir.exists(), "Directory should exist");
+
+        if let Err(error) = std::fs::remove_dir_all(&workdir) {
+            panic!("Failed to clean up test workdir {workdir:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn create_dump_dir_expands_tilde_in_workdir() {
+        let home = std::env::var("HOME").unwrap();
+        let workdir_name = format!("rbak-tilde-workdir-test-{}", std::process::id());
+        let configured_workdir = format!("~/{workdir_name}");
+        let expected_workdir = PathBuf::from(home).join(&workdir_name);
+
+        let dir = create_dump_dir(Some(&configured_workdir), "test_model").unwrap();
+
+        assert_eq!(dir, expected_workdir.join("rbak").join("test_model"));
+        assert!(dir.exists(), "Directory should exist");
+
+        if let Err(error) = std::fs::remove_dir_all(&expected_workdir) {
+            panic!("Failed to clean up test workdir {expected_workdir:?}: {error}");
         }
     }
 }

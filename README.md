@@ -30,7 +30,7 @@ Current features:
 - Multiple backup models in one config file.
 - On-demand backups with `rbak perform`.
 - MySQL dumps through the native `mysqldump` client.
-- Temporary work directory per model with automatic cleanup.
+- Configurable temporary work directory (`workdir`) with one subdirectory per model and automatic cleanup.
 - Clear error messages for missing config files, invalid YAML, and failed dumps.
 - Unit and integration tests for the CLI and configuration parser.
 
@@ -108,9 +108,15 @@ rbak looks for its configuration file in:
 - the path passed with `-c` / `--config`;
 - `~/.rbak/rbak.yml` by default.
 
+The optional top-level `workdir` setting controls where temporary dump files are written. It
+accepts regular paths and leading tilde paths such as `~/Desktop`. This is not the final backup
+destination: the directory is cleaned up after each run until storage backends are implemented.
+
 Minimal example:
 
 ```yml
+workdir: /tmp
+
 models:
   my_site:
     databases:
@@ -174,7 +180,7 @@ Example output:
 $ rbak perform -c rbak.yml
 Model: my_site
   Database: mysql
-  mysql done
+  ✔ mysql done
 ```
 
 On error:
@@ -187,7 +193,8 @@ Error: mysqldump failed:
 mysqldump: Got error: 2002: Can't connect to local MySQL server...
 ```
 
-The temporary directory is cleaned up even when the dump fails.
+Temporary files are written under `{workdir_or_system_temp_dir}/rbak/{model}/` and cleaned up
+even when the dump fails.
 
 ## Schedule
 

@@ -1,9 +1,13 @@
+use crate::paths;
 use serde::Deserialize;
 use std::collections::HashMap;
 
 /// Entry point of the YAML configuration file
 #[derive(Debug, Deserialize)]
 pub struct Config {
+    /// Directory used to generate temporary backup files.
+    pub workdir: Option<String>,
+
     /// Backup models, keyed by name (e.g. "my_app")
     pub models: HashMap<String, Model>,
 }
@@ -49,21 +53,12 @@ fn default_mysql_username() -> String {
     "root".to_string()
 }
 
-/// Get the user's home directory.
-fn home_dir() -> String {
-    std::env::var("HOME").expect("Could not find HOME environment variable")
-}
-
 /// Resolve the config file path.
 /// If `config_arg` is `Some`, use it (with tilde expansion).
 /// Otherwise, default to `$HOME/.rbak/rbak.yml`.
 pub fn resolve_config_path(config_arg: Option<String>) -> String {
-    let path = config_arg.unwrap_or_else(|| format!("{}/.rbak/rbak.yml", home_dir()));
-    // Expand leading tilde (e.g. ~/foo → $HOME/foo)
-    match path.strip_prefix("~/") {
-        Some(rest) => format!("{}/{rest}", home_dir()),
-        None => path,
-    }
+    let path = config_arg.unwrap_or_else(|| format!("{}/.rbak/rbak.yml", paths::home_dir()));
+    paths::expand_tilde(&path)
 }
 
 /// Load and parse the config file from the given path.
@@ -82,6 +77,29 @@ pub fn load_config(path: &str) -> Config {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parse_config_with_workdir() {
+        let yaml = r#"
+workdir: /var/tmp/rbak
+models: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+
+        assert_eq!(config.workdir.as_deref(), Some("/var/tmp/rbak"));
+    }
+
+    #[test]
+    fn parse_config_without_workdir() {
+        let yaml = r#"
+models: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(config.workdir.is_none());
+    }
 
     #[test]
     fn parse_mysql_with_all_fields() {
