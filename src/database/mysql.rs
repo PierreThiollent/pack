@@ -27,15 +27,14 @@ impl<'a> MySQL<'a> {
     /// This is a separate function so we can test the argument construction
     /// without actually running mysqldump.
     pub fn build_args(&self) -> Vec<String> {
-        let mut args = Vec::new();
-
-        // Host (default "localhost" from config.rs)
-        args.push("--host".to_string());
-        args.push(self.config.host.clone());
-
-        // Port (default 3306 from config.rs)
-        args.push("--port".to_string());
-        args.push(self.config.port.to_string());
+        let mut args = vec![
+            // Host (default "localhost" from config.rs)
+            "--host".to_string(),
+            self.config.host.clone(),
+            // Port (default 3306 from config.rs)
+            "--port".to_string(),
+            self.config.port.to_string(),
+        ];
 
         // Authentication
         if !self.config.username.is_empty() {

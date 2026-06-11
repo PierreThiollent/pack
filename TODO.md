@@ -2,14 +2,25 @@
 
 ## Temp directory
 
-- [ ] Utiliser un dossier unique par run
-      Au lieu de `/tmp/rbak/{model}/` fixe, créer `/tmp/rbakXXXXX/{timestamp}/{model}/`
+- [x] Utiliser un dossier unique par run
+      Au lieu de `/tmp/rbak/{model}/` fixe, créer `{workdir_or_system_temp_dir}/rbak-{timestamp}-{random}/{model}/`
       Évite les collisions si deux `perform` sont lancés en même temps
 
 - [x] Ajouter un `workdir` configurable
       Comme GoBackup, permettre de choisir la racine des fichiers temporaires :
       `workdir: /var/tmp/rbak`.
       Le dossier unique par run serait ensuite créé à l’intérieur de ce `workdir`.
+
+- [ ] Passer les chemins en `Path` / `PathBuf` plus loin dans le pipeline
+      Aujourd'hui `database::run()` attend un `&str`, donc `model.rs` convertit le chemin avec
+      `to_string_lossy()`. Plus tard, accepter directement un `&Path` serait plus idiomatique.
+
+- [ ] Sécuriser les noms utilisés dans les chemins temporaires
+      Empêcher un nom de model bizarre comme `../foo` de sortir du dossier de run.
+
+- [ ] Rendre le timestamp du dossier de run plus lisible
+      Aujourd'hui le dossier utilise un timestamp Unix en secondes. Plus tard, on pourrait utiliser
+      un format humain comme `2026-06-11-14-08-00`, sans complexifier maintenant.
 
 ## MySQL
 
