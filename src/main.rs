@@ -2,6 +2,7 @@ mod config;
 mod database;
 mod model;
 mod paths;
+mod storage;
 
 use clap::{CommandFactory, Parser, Subcommand};
 

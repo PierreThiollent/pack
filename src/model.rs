@@ -1,6 +1,7 @@
 use crate::config::{Config, Model};
 use crate::database;
 use crate::paths;
+use crate::storage;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder, TempDir};
@@ -30,6 +31,7 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
 
         let dump_directory = create_dump_directory(run_directory, name)?;
         run_model_databases(model, &dump_directory)?;
+        run_model_storages(model, &dump_directory)?;
     }
 
     Ok(())
@@ -41,6 +43,15 @@ fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), Strin
         println!("  Database: {database_name}");
         database::run(database_config, &dump_directory.to_string_lossy())?;
         println!("  ✔ {database_name} done");
+    }
+    Ok(())
+}
+
+fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
+    for (storage_name, storage_config) in &model.storages {
+        println!("  Storage: {storage_name}");
+        storage::run(storage_config, source_path)?;
+        println!("  ✔ {storage_name} done");
     }
     Ok(())
 }
