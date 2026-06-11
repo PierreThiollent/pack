@@ -6,7 +6,7 @@
       Au lieu de `/tmp/rbak/{model}/` fixe, créer `/tmp/rbakXXXXX/{timestamp}/{model}/`
       Évite les collisions si deux `perform` sont lancés en même temps
 
-- [ ] Ajouter un `workdir` configurable
+- [x] Ajouter un `workdir` configurable
       Comme GoBackup, permettre de choisir la racine des fichiers temporaires :
       `workdir: /var/tmp/rbak`.
       Le dossier unique par run serait ensuite créé à l’intérieur de ce `workdir`.
