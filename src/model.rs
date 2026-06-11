@@ -109,6 +109,7 @@ mod tests {
             Model {
                 databases: HashMap::new(),
                 storages: HashMap::new(),
+                archive: None,
             },
         );
 

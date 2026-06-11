@@ -22,6 +22,9 @@ pub struct Model {
     /// Storages where backups will be copied or uploaded, keyed by name
     #[serde(default)]
     pub storages: HashMap<String, StorageConfig>,
+
+    /// Files and directories to include in the backup archive
+    pub archive: Option<ArchiveConfig>,
 }
 
 /// Configuration for a database — the `type` field determines which variant is used
@@ -38,6 +41,16 @@ pub enum DatabaseConfig {
 pub enum StorageConfig {
     #[serde(rename = "local")]
     Local(LocalConfig),
+}
+
+/// Configuration for additional files and directories to archive
+#[derive(Debug, Deserialize)]
+pub struct ArchiveConfig {
+    #[serde(default)]
+    pub includes: Vec<String>,
+
+    #[serde(default)]
+    pub excludes: Vec<String>,
 }
 
 /// Configuration specific to local storage
@@ -280,6 +293,90 @@ models:
         let result = serde_yaml::from_str::<Config>(yaml);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_archive_with_includes_and_excludes() {
+        let yaml = r#"
+models:
+  my_app:
+    archive:
+      includes:
+        - ~/Desktop/test
+      excludes:
+        - ~/Desktop/test/cache
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let archive = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .archive
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(archive.includes, vec!["~/Desktop/test"]);
+        assert_eq!(archive.excludes, vec!["~/Desktop/test/cache"]);
+    }
+
+    #[test]
+    fn parse_archive_without_excludes() {
+        let yaml = r#"
+models:
+  my_app:
+    archive:
+      includes:
+        - ~/Desktop/test
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let archive = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .archive
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(archive.includes, vec!["~/Desktop/test"]);
+        assert!(archive.excludes.is_empty());
+    }
+
+    #[test]
+    fn parse_config_without_archive() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let model = config.models.get("my_app").unwrap();
+        assert!(model.archive.is_none());
+    }
+
+    #[test]
+    fn parse_archive_without_includes() {
+        let yaml = r#"
+models:
+  my_app:
+    archive:
+      excludes:
+        - ~/Desktop/test/cache
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let archive = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .archive
+            .as_ref()
+            .unwrap();
+
+        assert!(archive.includes.is_empty());
+        assert_eq!(archive.excludes, vec!["~/Desktop/test/cache"]);
     }
 
     #[test]
