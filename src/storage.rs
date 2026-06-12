@@ -18,7 +18,7 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::LocalConfig;
+    use crate::storage::local::LocalConfig;
 
     #[test]
     fn run_dispatches_to_local_storage() {
