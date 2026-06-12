@@ -123,6 +123,7 @@ mod tests {
                 databases: HashMap::new(),
                 storages: HashMap::new(),
                 archive: None,
+                compress_with: None,
             },
         );
 

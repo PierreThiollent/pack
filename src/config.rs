@@ -29,6 +29,9 @@ pub struct Model {
 
     /// Files and directories to include in the backup archive
     pub archive: Option<ArchiveConfig>,
+
+    /// Compression configuration for the backup artifact
+    pub compress_with: Option<CompressorConfig>,
 }
 
 /// Configuration for a database — the `type` field determines which variant is used
@@ -53,6 +56,14 @@ impl DatabaseConfig {
 pub enum StorageConfig {
     #[serde(rename = "local")]
     Local(LocalConfig),
+}
+
+/// Configuration for compression — the `type` field determines which variant is used
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum CompressorConfig {
+    #[serde(rename = "tgz")]
+    Tgz,
 }
 
 /// Resolve the config file path.
@@ -282,6 +293,54 @@ models:
       remote:
         type: s3
         path: somewhere
+"#;
+
+        let result = serde_yaml::from_str::<Config>(yaml);
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn parse_compressor_tgz() {
+        let yaml = r#"
+models:
+  my_app:
+    compress_with:
+      type: tgz
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let compressor = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .compress_with
+            .as_ref()
+            .unwrap();
+
+        assert!(matches!(compressor, CompressorConfig::Tgz));
+    }
+
+    #[test]
+    fn parse_config_without_compressor() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let model = config.models.get("my_app").unwrap();
+        assert!(model.compress_with.is_none());
+    }
+
+    #[test]
+    fn parse_invalid_yaml_unknown_compressor_type() {
+        let yaml = r#"
+models:
+  my_app:
+    compress_with:
+      type: zip
 "#;
 
         let result = serde_yaml::from_str::<Config>(yaml);
