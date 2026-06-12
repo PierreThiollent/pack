@@ -1,5 +1,30 @@
-use crate::config::MySQLConfig;
+use serde::Deserialize;
 use std::process::Command;
+
+/// Configuration specific to MySQL.
+#[derive(Debug, Deserialize)]
+pub struct MySQLConfig {
+    #[serde(default = "default_host")]
+    pub host: String,
+    #[serde(default = "default_mysql_port")]
+    pub port: u16,
+    pub database: String,
+    #[serde(default = "default_mysql_username")]
+    pub username: String,
+    pub password: Option<String>,
+}
+
+fn default_host() -> String {
+    "localhost".to_string()
+}
+
+fn default_mysql_port() -> u16 {
+    3306
+}
+
+fn default_mysql_username() -> String {
+    "root".to_string()
+}
 
 /// MySQL dump using mysqldump subprocess.
 ///
@@ -80,7 +105,6 @@ impl<'a> MySQL<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::MySQLConfig;
 
     fn make_config(overrides: impl FnOnce(&mut MySQLConfig)) -> MySQLConfig {
         let mut config = MySQLConfig {
