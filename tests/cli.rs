@@ -61,7 +61,7 @@ fn load_missing_config_file_errors() {
 
     assert!(!output.status.success(), "rbak should exit with error");
     assert!(
-        stderr.contains("Error reading config file"),
+        stderr.contains("Failed to read config file"),
         "Should show file error. stdout:\n{}",
         String::from_utf8_lossy(&output.stdout)
     );
@@ -82,7 +82,7 @@ fn load_invalid_yaml_errors() {
         "rbak should exit with error on invalid YAML"
     );
     assert!(
-        stderr.contains("Error parsing config file"),
+        stderr.contains("Failed to parse config file"),
         "Should show parse error. stdout:\n{}",
         String::from_utf8_lossy(&output.stdout)
     );

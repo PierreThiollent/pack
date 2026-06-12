@@ -4,6 +4,7 @@ use crate::paths;
 use crate::storage::local::LocalConfig;
 use serde::Deserialize;
 use std::collections::HashMap;
+use tracing::error;
 
 /// Entry point of the YAML configuration file
 #[derive(Debug, Deserialize)]
@@ -57,12 +58,12 @@ pub fn resolve_config_path(config_arg: Option<String>) -> String {
 /// Load and parse the config file from the given path.
 /// Exits the process with an error message on failure.
 pub fn load_config(path: &str) -> Config {
-    let yaml_content = std::fs::read_to_string(path).unwrap_or_else(|e| {
-        eprintln!("Error reading config file {path}: {e}");
+    let yaml_content = std::fs::read_to_string(path).unwrap_or_else(|error| {
+        error!("Failed to read config file {path}: {error}");
         std::process::exit(1);
     });
-    serde_yaml::from_str(&yaml_content).unwrap_or_else(|e| {
-        eprintln!("Error parsing config file {path}: {e}");
+    serde_yaml::from_str(&yaml_content).unwrap_or_else(|error| {
+        error!("Failed to parse config file {path}: {error}");
         std::process::exit(1);
     })
 }

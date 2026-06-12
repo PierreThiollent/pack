@@ -1,6 +1,7 @@
 use crate::paths;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
+use tracing::info;
 
 /// Configuration specific to local storage.
 #[derive(Debug, Deserialize)]
@@ -47,7 +48,7 @@ impl<'a> Local<'a> {
             copy_file(self.source_path, &destination_path)?;
         }
 
-        println!("    Stored locally: {}", destination_path.display());
+        info!("Stored locally: {}", destination_path.display());
         Ok(())
     }
 

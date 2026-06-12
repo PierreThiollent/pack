@@ -2,6 +2,7 @@ use crate::paths;
 use serde::Deserialize;
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
+use tracing::info;
 
 const ARCHIVE_FILE_NAME: &str = "archive.tar";
 const ARCHIVE_ROOT_DIRECTORY: &str = "archive";
@@ -29,8 +30,8 @@ pub fn run(config: Option<&ArchiveConfig>, dump_directory: &Path) -> Result<(), 
     let archive_path = archive_path(dump_directory);
     create_archive(config, &archive_path)?;
 
-    println!(
-        "  Archive: {} include(s), {} exclude(s) -> {}",
+    info!(
+        "Archive: {} include(s), {} exclude(s) -> {}",
         config.includes.len(),
         config.excludes.len(),
         archive_path.display()
