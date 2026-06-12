@@ -7,7 +7,7 @@ mod paths;
 mod storage;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use tracing::error;
+use tracing::{error, info};
 
 /// rbak 🎒 — Backup tool written in Rust 🦀
 #[derive(Debug, Parser)]
@@ -34,10 +34,16 @@ fn main() {
 
     match cli.command {
         Some(Commands::Perform) => {
+            let config_source = if cli.config.is_some() {
+                "custom path"
+            } else {
+                "default path"
+            };
             let config_path = config::resolve_config_path(cli.config);
             let config = config::load_config(&config_path);
+            info!("[Config] Loaded config from {config_source}: {config_path}");
             if let Err(error) = model::run_all(&config) {
-                error!("Failed to run backup: {error}");
+                error!("[Run] Failed to run backup: {error}");
                 std::process::exit(1);
             }
         }

@@ -28,14 +28,15 @@ pub fn run(config: Option<&ArchiveConfig>, dump_directory: &Path) -> Result<(), 
     }
 
     let archive_path = archive_path(dump_directory);
+    info!(
+        "[Archive] Creating archive: {} include(s), {} exclude(s)",
+        config.includes.len(),
+        config.excludes.len()
+    );
+
     create_archive(config, &archive_path)?;
 
-    info!(
-        "Archive: {} include(s), {} exclude(s) -> {}",
-        config.includes.len(),
-        config.excludes.len(),
-        archive_path.display()
-    );
+    info!("[Archive] Archive created: {}", archive_path.display());
 
     Ok(())
 }

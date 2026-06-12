@@ -48,7 +48,7 @@ impl<'a> Local<'a> {
             copy_file(self.source_path, &destination_path)?;
         }
 
-        info!("Stored locally: {}", destination_path.display());
+        info!("[Local] Store succeeded: {}", destination_path.display());
         Ok(())
     }
 

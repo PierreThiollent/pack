@@ -62,11 +62,9 @@ fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), Strin
 
 fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
     for (storage_name, storage_config) in &model.storages {
-        let storage_type = storage_config.type_name();
-
-        info!("[{storage_type}: {storage_name}] Uploading backup");
+        info!("[Storage: {storage_name}] Uploading backup");
         storage::run(storage_config, source_path)?;
-        info!("[{storage_type}: {storage_name}] Storage completed");
+        info!("[Storage: {storage_name}] Storage completed");
     }
     Ok(())
 }

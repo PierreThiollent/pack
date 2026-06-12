@@ -55,14 +55,6 @@ pub enum StorageConfig {
     Local(LocalConfig),
 }
 
-impl StorageConfig {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            StorageConfig::Local(_) => "Local",
-        }
-    }
-}
-
 /// Resolve the config file path.
 /// If `config_arg` is `Some`, use it (with tilde expansion).
 /// Otherwise, default to `$HOME/.rbak/rbak.yml`.
@@ -75,11 +67,11 @@ pub fn resolve_config_path(config_arg: Option<String>) -> String {
 /// Exits the process with an error message on failure.
 pub fn load_config(path: &str) -> Config {
     let yaml_content = std::fs::read_to_string(path).unwrap_or_else(|error| {
-        error!("Failed to read config file {path}: {error}");
+        error!("[Config] Failed to read config file {path}: {error}");
         std::process::exit(1);
     });
     serde_yaml::from_str(&yaml_content).unwrap_or_else(|error| {
-        error!("Failed to parse config file {path}: {error}");
+        error!("[Config] Failed to parse config file {path}: {error}");
         std::process::exit(1);
     })
 }
@@ -196,29 +188,6 @@ models:
             .unwrap();
 
         assert_eq!(database.type_name(), "MySQL");
-    }
-
-    #[test]
-    fn storage_config_type_name_returns_local() {
-        let yaml = r#"
-models:
-  my_app:
-    storages:
-      desktop:
-        type: local
-        path: /tmp/backups
-"#;
-
-        let config: Config = serde_yaml::from_str(yaml).unwrap();
-        let storage = config
-            .models
-            .get("my_app")
-            .unwrap()
-            .storages
-            .get("desktop")
-            .unwrap();
-
-        assert_eq!(storage.type_name(), "Local");
     }
 
     #[test]
