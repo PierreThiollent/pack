@@ -39,12 +39,28 @@ pub enum DatabaseConfig {
     MySQL(MySQLConfig),
 }
 
+impl DatabaseConfig {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            DatabaseConfig::MySQL(_) => "MySQL",
+        }
+    }
+}
+
 /// Configuration for a storage — the `type` field determines which variant is used
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub enum StorageConfig {
     #[serde(rename = "local")]
     Local(LocalConfig),
+}
+
+impl StorageConfig {
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            StorageConfig::Local(_) => "Local",
+        }
+    }
 }
 
 /// Resolve the config file path.
@@ -157,6 +173,52 @@ models:
                 assert_eq!(cfg.database, "");
             }
         }
+    }
+
+    #[test]
+    fn database_config_type_name_returns_mysql() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: mysql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let database = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        assert_eq!(database.type_name(), "MySQL");
+    }
+
+    #[test]
+    fn storage_config_type_name_returns_local() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      desktop:
+        type: local
+        path: /tmp/backups
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("desktop")
+            .unwrap();
+
+        assert_eq!(storage.type_name(), "Local");
     }
 
     #[test]
