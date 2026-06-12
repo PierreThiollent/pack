@@ -1,6 +1,7 @@
 mod archive;
 mod config;
 mod database;
+mod logging;
 mod model;
 mod paths;
 mod storage;
@@ -26,6 +27,8 @@ enum Commands {
 }
 
 fn main() {
+    logging::init();
+
     let cli = Cli::parse();
 
     match cli.command {
