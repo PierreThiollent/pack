@@ -10,6 +10,11 @@ models:
         database: myapp_prod
         username: root
         password: s3cr3t
+    archive:
+      includes:
+        - ~/Documents/myapp
+    compress_with:
+      type: tgz
     storages:
       local:
         type: local
