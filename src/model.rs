@@ -43,7 +43,7 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
 fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), String> {
     for (database_name, database_config) in &model.databases {
         println!("  Database: {database_name}");
-        database::run(database_config, &dump_directory.to_string_lossy())?;
+        database::run(database_config, dump_directory)?;
         println!("  ✔ {database_name} done");
     }
     Ok(())

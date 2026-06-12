@@ -1,4 +1,5 @@
 use serde::Deserialize;
+use std::path::Path;
 use std::process::Command;
 
 /// Configuration specific to MySQL.
@@ -32,7 +33,7 @@ fn default_mysql_username() -> String {
 ///   mysqldump --host localhost --port 3306 -u root -psecret my_database --result-file=/tmp/dump.sql
 pub struct MySQL<'a> {
     config: &'a MySQLConfig,
-    dump_path: String,
+    dump_path: &'a Path,
 }
 
 impl<'a> MySQL<'a> {
@@ -40,11 +41,8 @@ impl<'a> MySQL<'a> {
     ///
     /// * `config` — parsed MySQL config from the YAML file
     /// * `dump_path` — directory where the SQL dump file will be written
-    pub fn new(config: &'a MySQLConfig, dump_path: &str) -> Self {
-        Self {
-            config,
-            dump_path: dump_path.to_string(),
-        }
+    pub fn new(config: &'a MySQLConfig, dump_path: &'a Path) -> Self {
+        Self { config, dump_path }
     }
 
     /// Build the list of arguments for `mysqldump`.
@@ -75,9 +73,9 @@ impl<'a> MySQL<'a> {
         args.push(self.config.database.clone());
 
         // Output file named after the database
-        let output_file = format!("{}/{}.sql", self.dump_path, self.config.database);
+        let output_file = self.dump_path.join(format!("{}.sql", self.config.database));
         args.push("--result-file".to_string());
-        args.push(output_file);
+        args.push(output_file.to_string_lossy().into_owned());
 
         args
     }
@@ -124,7 +122,7 @@ mod tests {
             c.host = "db.example.com".to_string();
             c.port = 3307;
         });
-        let mysql = MySQL::new(&config, "/tmp/dumps");
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
         let args = mysql.build_args();
         assert!(args.contains(&"--host".to_string()));
@@ -136,7 +134,7 @@ mod tests {
     #[test]
     fn build_args_uses_default_port() {
         let config = make_config(|_| {});
-        let mysql = MySQL::new(&config, "/tmp/dumps");
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
         let args = mysql.build_args();
         assert!(args.contains(&"--port".to_string()));
@@ -146,7 +144,7 @@ mod tests {
     #[test]
     fn build_args_includes_auth() {
         let config = make_config(|_| {});
-        let mysql = MySQL::new(&config, "/tmp/dumps");
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
         let args = mysql.build_args();
         // -u root
@@ -162,7 +160,7 @@ mod tests {
             c.username = String::new();
             c.password = None;
         });
-        let mysql = MySQL::new(&config, "/tmp/dumps");
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
         let args = mysql.build_args();
         assert!(!args.contains(&"-u".to_string()));
@@ -173,7 +171,7 @@ mod tests {
         let config = make_config(|c| {
             c.database = "my_app_prod".to_string();
         });
-        let mysql = MySQL::new(&config, "/tmp/dumps");
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
         let args = mysql.build_args();
         assert!(args.contains(&"my_app_prod".to_string()));
@@ -182,7 +180,7 @@ mod tests {
     #[test]
     fn build_args_includes_result_file() {
         let config = make_config(|_| {});
-        let mysql = MySQL::new(&config, "/tmp/dumps");
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
         let args = mysql.build_args();
         let rf_idx = args.iter().position(|a| a == "--result-file").unwrap();
