@@ -1,3 +1,4 @@
+use crate::archive::ArchiveConfig;
 use crate::database::mysql::MySQLConfig;
 use crate::paths;
 use crate::storage::local::LocalConfig;
@@ -43,16 +44,6 @@ pub enum DatabaseConfig {
 pub enum StorageConfig {
     #[serde(rename = "local")]
     Local(LocalConfig),
-}
-
-/// Configuration for additional files and directories to archive
-#[derive(Debug, Deserialize)]
-pub struct ArchiveConfig {
-    #[serde(default)]
-    pub includes: Vec<String>,
-
-    #[serde(default)]
-    pub excludes: Vec<String>,
 }
 
 /// Resolve the config file path.

@@ -1,10 +1,20 @@
-use crate::config::ArchiveConfig;
 use crate::paths;
+use serde::Deserialize;
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
 
 const ARCHIVE_FILE_NAME: &str = "archive.tar";
 const ARCHIVE_ROOT_DIRECTORY: &str = "archive";
+
+/// Configuration for additional files and directories to archive.
+#[derive(Debug, Deserialize)]
+pub struct ArchiveConfig {
+    #[serde(default)]
+    pub includes: Vec<String>,
+
+    #[serde(default)]
+    pub excludes: Vec<String>,
+}
 
 /// Create an archive from configured files and directories.
 pub fn run(config: Option<&ArchiveConfig>, dump_directory: &Path) -> Result<(), String> {
