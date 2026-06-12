@@ -6,6 +6,7 @@ use crate::storage;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::{Builder, TempDir};
+use tracing::{info, warn};
 
 /// Run all backup models from the configuration.
 ///
@@ -13,14 +14,20 @@ use tempfile::{Builder, TempDir};
 /// its own dump directory inside it. The run directory is always cleaned up,
 /// even on failure.
 pub fn run_all(config: &Config) -> Result<(), String> {
+    info!("[Run] Starting backup run");
+
     let run_directory = create_run_directory(config.workdir.as_deref())?;
-    tracing::info!("Run directory: {}", run_directory.path().display());
+    info!("[Run] Work directory: {}", run_directory.path().display());
 
     let result = run_models(config, run_directory.path());
 
     let run_directory_path = run_directory.path().to_path_buf();
     if let Err(error) = run_directory.close() {
-        tracing::warn!("Failed to clean up run directory {run_directory_path:?}: {error}");
+        warn!("[Cleanup] Failed to clean up run directory {run_directory_path:?}: {error}");
+    }
+
+    if result.is_ok() {
+        info!("[Run] Backup run completed");
     }
 
     result
@@ -28,12 +35,14 @@ pub fn run_all(config: &Config) -> Result<(), String> {
 
 fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
     for (name, model) in &config.models {
-        tracing::info!("Model: {name}");
+        info!("[Model: {name}] Running model");
 
         let dump_directory = create_dump_directory(run_directory, name)?;
         run_model_databases(model, &dump_directory)?;
         archive::run(model.archive.as_ref(), &dump_directory)?;
         run_model_storages(model, &dump_directory)?;
+
+        info!("[Model: {name}] Model completed");
     }
 
     Ok(())
@@ -42,18 +51,22 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
 /// Run all database dumps for a single model inside the given dump directory.
 fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), String> {
     for (database_name, database_config) in &model.databases {
-        tracing::info!("Database: {database_name}");
+        let database_type = database_config.type_name();
+
+        info!("[{database_type}: {database_name}] Dumping database");
         database::run(database_config, dump_directory)?;
-        tracing::info!("Database completed: {database_name}");
+        info!("[{database_type}: {database_name}] Database completed");
     }
     Ok(())
 }
 
 fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
     for (storage_name, storage_config) in &model.storages {
-        tracing::info!("Storage: {storage_name}");
+        let storage_type = storage_config.type_name();
+
+        info!("[{storage_type}: {storage_name}] Uploading backup");
         storage::run(storage_config, source_path)?;
-        tracing::info!("Storage completed: {storage_name}");
+        info!("[{storage_type}: {storage_name}] Storage completed");
     }
     Ok(())
 }
