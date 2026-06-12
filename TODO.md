@@ -11,7 +11,7 @@
       `workdir: /var/tmp/rbak`.
       Le dossier unique par run serait ensuite créé à l’intérieur de ce `workdir`.
 
-- [ ] Passer les chemins en `Path` / `PathBuf` plus loin dans le pipeline
+- [x] Passer les chemins en `Path` / `PathBuf` plus loin dans le pipeline
       Aujourd'hui `database::run()` attend un `&str`, donc `model.rs` convertit le chemin avec
       `to_string_lossy()`. Plus tard, accepter directement un `&Path` serait plus idiomatique.
 
