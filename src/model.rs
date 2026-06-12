@@ -14,13 +14,13 @@ use tempfile::{Builder, TempDir};
 /// even on failure.
 pub fn run_all(config: &Config) -> Result<(), String> {
     let run_directory = create_run_directory(config.workdir.as_deref())?;
-    println!("Run directory: {}", run_directory.path().display());
+    tracing::info!("Run directory: {}", run_directory.path().display());
 
     let result = run_models(config, run_directory.path());
 
     let run_directory_path = run_directory.path().to_path_buf();
     if let Err(error) = run_directory.close() {
-        eprintln!("Warning: failed to clean up run directory {run_directory_path:?}: {error}");
+        tracing::warn!("Failed to clean up run directory {run_directory_path:?}: {error}");
     }
 
     result
@@ -28,7 +28,7 @@ pub fn run_all(config: &Config) -> Result<(), String> {
 
 fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
     for (name, model) in &config.models {
-        println!("Model: {name}");
+        tracing::info!("Model: {name}");
 
         let dump_directory = create_dump_directory(run_directory, name)?;
         run_model_databases(model, &dump_directory)?;
@@ -42,18 +42,18 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
 /// Run all database dumps for a single model inside the given dump directory.
 fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), String> {
     for (database_name, database_config) in &model.databases {
-        println!("  Database: {database_name}");
+        tracing::info!("Database: {database_name}");
         database::run(database_config, dump_directory)?;
-        println!("  ✔ {database_name} done");
+        tracing::info!("Database completed: {database_name}");
     }
     Ok(())
 }
 
 fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
     for (storage_name, storage_config) in &model.storages {
-        println!("  Storage: {storage_name}");
+        tracing::info!("Storage: {storage_name}");
         storage::run(storage_config, source_path)?;
-        println!("  ✔ {storage_name} done");
+        tracing::info!("Storage completed: {storage_name}");
     }
     Ok(())
 }

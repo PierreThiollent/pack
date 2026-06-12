@@ -2,10 +2,18 @@
 
 ## Logging
 
-- [ ] Ajouter `tracing` et `tracing-subscriber`
+- [x] Ajouter `tracing` et `tracing-subscriber`
       Remplacer progressivement les `println!` / `eprintln!` par des appels `tracing::info!`,
       `tracing::warn!`, `tracing::error!` et `tracing::debug!`.
       Objectif : avoir des messages homogènes avec des niveaux de log clairs.
+      Fait : dépendances ajoutées, module `src/logging.rs` créé, initialisation dans `main.rs`.
+      Décision : conserver le timestamp + niveau (`INFO`, `WARN`, `ERROR`) comme GoBackup.
+      Décision : écrire les logs sur `stderr`, pour garder `stdout` disponible pour une future sortie machine/script.
+
+- [x] Remplacer les premiers `println!` / `eprintln!` par `tracing`
+      `src/model.rs` utilise maintenant `tracing::info!` pour le run directory, les models,
+      les databases et les storages, et `tracing::warn!` pour les erreurs de cleanup.
+      Il reste encore des anciens affichages dans `main.rs`, `config.rs`, `archive.rs` et `storage/local.rs`.
 
 - [ ] Ajouter un flag `-v` / `--verbose`
       Par défaut, afficher les logs `info`, `warn` et `error`.
