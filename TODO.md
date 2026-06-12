@@ -1,5 +1,31 @@
 # TODO — Améliorations repérées en cours de route
 
+## Logging
+
+- [ ] Ajouter `tracing` et `tracing-subscriber`
+      Remplacer progressivement les `println!` / `eprintln!` par des appels `tracing::info!`,
+      `tracing::warn!`, `tracing::error!` et `tracing::debug!`.
+      Objectif : avoir des messages homogènes avec des niveaux de log clairs.
+
+- [ ] Ajouter un flag `-v` / `--verbose`
+      Par défaut, afficher les logs `info`, `warn` et `error`.
+      Avec `--verbose`, activer aussi les logs `debug` pour faciliter le diagnostic.
+
+- [ ] Améliorer les messages affichés par le CLI
+      Utiliser des formulations simples et cohérentes :
+      `Starting backup run`, `Running model: ...`, `Dumping database: ...`,
+      `Creating archive: ...`, `Uploading to storage: ...`, `Backup run completed`, etc.
+
+- [ ] Remplacer plus tard `Result<T, String>` par des erreurs typées avec `thiserror`
+      Ce n'est pas nécessaire pour démarrer le logging, mais ce sera utile pour afficher
+      des erreurs plus structurées quand compression, FTP/SFTP et réseau seront ajoutés.
+
+## Archive
+
+- [ ] Vérifier que lorsque l'on archive un dossier, si une ecriture/suppression a lieu pendant l'archive, cela ne fait pas planter le processus.
+      Par exemple, si un fichier est supprimé pendant l'archive, `tar` peut échouer avec une erreur "file not found". Il faudrait vérifier que cela n'empêche pas l'archive de se terminer correctement, ou ajouter une option pour ignorer ces erreurs.
+      J'ai deja rencontré ce probleme avec gobackup et c'etait chiant, donc je veux m'assurer que rbak gère ça proprement.
+
 ## Temp directory
 
 - [x] Utiliser un dossier unique par run
