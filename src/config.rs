@@ -1,3 +1,4 @@
+use crate::database::mysql::MySQLConfig;
 use crate::paths;
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -57,31 +58,6 @@ pub struct ArchiveConfig {
 #[derive(Debug, Deserialize)]
 pub struct LocalConfig {
     pub path: String,
-}
-
-/// Configuration specific to MySQL
-#[derive(Debug, Deserialize)]
-pub struct MySQLConfig {
-    #[serde(default = "default_host")]
-    pub host: String,
-    #[serde(default = "default_mysql_port")]
-    pub port: u16,
-    pub database: String,
-    #[serde(default = "default_mysql_username")]
-    pub username: String,
-    pub password: Option<String>,
-}
-
-fn default_host() -> String {
-    "localhost".to_string()
-}
-
-fn default_mysql_port() -> u16 {
-    3306
-}
-
-fn default_mysql_username() -> String {
-    "root".to_string()
 }
 
 /// Resolve the config file path.
