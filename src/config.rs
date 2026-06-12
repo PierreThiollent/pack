@@ -1,5 +1,6 @@
 use crate::database::mysql::MySQLConfig;
 use crate::paths;
+use crate::storage::local::LocalConfig;
 use serde::Deserialize;
 use std::collections::HashMap;
 
@@ -52,12 +53,6 @@ pub struct ArchiveConfig {
 
     #[serde(default)]
     pub excludes: Vec<String>,
-}
-
-/// Configuration specific to local storage
-#[derive(Debug, Deserialize)]
-pub struct LocalConfig {
-    pub path: String,
 }
 
 /// Resolve the config file path.

@@ -1,6 +1,12 @@
-use crate::config::LocalConfig;
 use crate::paths;
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
+
+/// Configuration specific to local storage.
+#[derive(Debug, Deserialize)]
+pub struct LocalConfig {
+    pub path: String,
+}
 
 /// Local filesystem storage.
 pub struct Local<'a> {
