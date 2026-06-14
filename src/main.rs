@@ -9,11 +9,11 @@ mod storage;
 use clap::{CommandFactory, Parser, Subcommand};
 use tracing::{error, info};
 
-/// rbak 🎒 — Backup tool written in Rust 🦀
+/// pack 🎒 — Backup tool written in Rust 🦀
 #[derive(Debug, Parser)]
 #[command(version, about)]
 struct Cli {
-    /// Path to config file (default: ~/.rbak/rbak.yml)
+    /// Path to config file (default: ~/.pack/pack.yml)
     #[arg(short = 'c', long, global = true)]
     config: Option<String>,
 
@@ -61,27 +61,27 @@ mod tests {
 
     #[test]
     fn cli_help_contains_usage() {
-        let err = Cli::try_parse_from(["rbak", "--help"]).unwrap_err();
+        let err = Cli::try_parse_from(["pack", "--help"]).unwrap_err();
         let output = err.to_string();
         assert!(output.contains("Usage"), "Help should contain Usage");
     }
 
     #[test]
     fn cli_version_contains_version() {
-        let err = Cli::try_parse_from(["rbak", "--version"]).unwrap_err();
+        let err = Cli::try_parse_from(["pack", "--version"]).unwrap_err();
         let output = err.to_string();
         assert!(output.contains("0.1.0"), "Version should contain 0.1.0");
     }
 
     #[test]
     fn cli_with_config_arg_succeeds() {
-        let cli = Cli::try_parse_from(["rbak", "-c", "some/path.yml"]).unwrap();
+        let cli = Cli::try_parse_from(["pack", "-c", "some/path.yml"]).unwrap();
         assert_eq!(cli.config.as_deref(), Some("some/path.yml"));
     }
 
     #[test]
     fn cli_without_args_succeeds() {
-        let cli = Cli::try_parse_from(["rbak"]).unwrap();
+        let cli = Cli::try_parse_from(["pack"]).unwrap();
         assert!(cli.config.is_none());
     }
 }

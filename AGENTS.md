@@ -1,4 +1,4 @@
-# Agent conventions for rbak
+# Agent conventions for pack
 
 This file defines conventions that the coding agent (Pi) must follow when working on this project.
 

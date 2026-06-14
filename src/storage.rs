@@ -24,7 +24,7 @@ mod tests {
     fn run_dispatches_to_local_storage() {
         let source_directory = tempfile::tempdir().unwrap();
         let config = StorageConfig::Local(LocalConfig {
-            path: "/tmp/rbak-test".to_string(),
+            path: "/tmp/pack-test".to_string(),
         });
 
         let result = run(&config, source_directory.path());

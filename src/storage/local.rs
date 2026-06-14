@@ -190,7 +190,7 @@ mod tests {
 
     #[test]
     fn perform_rejects_missing_source_path() {
-        let config = make_config("/tmp/rbak-test");
+        let config = make_config("/tmp/pack-test");
         let local = Local::new(&config, Path::new("/path/that/does/not/exist"));
 
         let result = local.perform();
