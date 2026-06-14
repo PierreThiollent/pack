@@ -1,4 +1,5 @@
 mod archive;
+mod compressor;
 mod config;
 mod database;
 mod logging;

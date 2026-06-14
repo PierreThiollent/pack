@@ -30,6 +30,16 @@
       Ce n'est pas nécessaire pour démarrer le logging, mais ce sera utile pour afficher
       des erreurs plus structurées quand compression, FTP/SFTP et réseau seront ajoutés.
 
+## Compressor
+
+- [ ] Étudier une optimisation optionnelle avec `pigz` plus tard
+      `pigz` est une implémentation parallèle de gzip. Sur de gros dumps ou de grosses archives,
+      le gain peut être important parce que la compression utilise plusieurs cœurs CPU au lieu d'un seul.
+      GoBackup le détecte automatiquement pour les formats gzip (`tgz`, `tar.gz`) et l'utilise si installé.
+      Pour `pack`, on garde le MVP en Rust natif avec `flate2` pour rester portable et testable.
+      Option future possible : ajouter un mode optionnel qui utilise `pigz` si l'utilisateur le demande,
+      mais ne pas en faire une dépendance du MVP.
+
 ## Archive
 
 - [ ] Vérifier que lorsque l'on archive un dossier, si une ecriture/suppression a lieu pendant l'archive, cela ne fait pas planter le processus.
