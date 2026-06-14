@@ -1,4 +1,5 @@
 use crate::archive;
+use crate::compressor;
 use crate::config::{Config, Model};
 use crate::database;
 use crate::paths;
@@ -40,7 +41,8 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
         let dump_directory = create_dump_directory(run_directory, name)?;
         run_model_databases(model, &dump_directory)?;
         archive::run(model.archive.as_ref(), &dump_directory)?;
-        run_model_storages(model, &dump_directory)?;
+        let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory)?;
+        run_model_storages(model, &artifact_path)?;
 
         info!("[Model: {name}] Model completed");
     }
