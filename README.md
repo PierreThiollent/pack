@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="https://img.icons8.com/emoji/96/backpack-emoji.png" width="96" alt="rbak" />
+  <img src="https://img.icons8.com/emoji/96/backpack-emoji.png" width="96" alt="pack" />
 </p>
 
-<h1 align="center">rbak</h1>
+<h1 align="center">pack</h1>
 
 <p align="center">
   Back up databases and files to local or cloud storage from a single CLI.
@@ -14,7 +14,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
 
-rbak is a backup tool designed for application servers. It exports databases, packs files,
+pack is a backup tool designed for application servers. It exports databases, packs files,
 compresses the result, and stores the final archive outside the server.
 
 The goal is simple: configure it once, run it from the command line or on a schedule, and keep
@@ -28,7 +28,7 @@ Current features:
 
 - YAML-based configuration.
 - Multiple backup models in one config file.
-- On-demand backups with `rbak perform`.
+- On-demand backups with `pack perform`.
 - MySQL dumps through the native `mysqldump` client.
 - Configurable temporary work directory (`workdir`) with one unique directory per run and automatic cleanup.
 - Clear error messages for missing config files, invalid YAML, and failed dumps.
@@ -87,13 +87,13 @@ Planned notification backends include:
 
 ## Installation
 
-For now, rbak is built from source:
+For now, pack is built from source:
 
 ```bash
-git clone https://github.com/your-account/rbak
-cd rbak
+git clone https://github.com/your-account/pack
+cd pack
 cargo build --release
-cp target/release/rbak /usr/local/bin/
+cp target/release/pack /usr/local/bin/
 ```
 
 ### Requirements
@@ -103,10 +103,10 @@ cp target/release/rbak /usr/local/bin/
 
 ## Configuration
 
-rbak looks for its configuration file in:
+pack looks for its configuration file in:
 
 - the path passed with `-c` / `--config`;
-- `~/.rbak/rbak.yml` by default.
+- `~/.pack/pack.yml` by default.
 
 The optional top-level `workdir` setting controls where temporary dump files are written. It
 accepts regular paths and leading tilde paths such as `~/Desktop`. Each `perform` creates its own
@@ -159,27 +159,27 @@ retention, encryption, and notifications.
 Run a backup with the default config path:
 
 ```bash
-rbak perform
+pack perform
 ```
 
 Run a backup with an explicit config file:
 
 ```bash
-rbak perform -c /path/to/rbak.yml
+pack perform -c /path/to/pack.yml
 ```
 
 Show help or version:
 
 ```bash
-rbak --help
-rbak --version
+pack --help
+pack --version
 ```
 
 Example output:
 
 ```text
-$ rbak perform -c rbak.yml
-Run directory: /tmp/rbak-1780000000-aBcDeF
+$ pack perform -c pack.yml
+Run directory: /tmp/pack-1780000000-aBcDeF
 Model: my_site
   Database: mysql
   ✔ mysql done
@@ -188,15 +188,15 @@ Model: my_site
 On error:
 
 ```text
-$ rbak perform -c rbak.yml
-Run directory: /tmp/rbak-1780000000-aBcDeF
+$ pack perform -c pack.yml
+Run directory: /tmp/pack-1780000000-aBcDeF
 Model: my_site
   Database: mysql
 Error: mysqldump failed:
 mysqldump: Got error: 2002: Can't connect to local MySQL server...
 ```
 
-Temporary files are written under `{workdir_or_system_temp_dir}/rbak-{timestamp}-{random}/{model}/`
+Temporary files are written under `{workdir_or_system_temp_dir}/pack-{timestamp}-{random}/{model}/`
 and cleaned up even when the dump fails.
 
 ## Schedule

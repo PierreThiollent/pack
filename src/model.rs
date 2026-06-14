@@ -71,7 +71,7 @@ fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
 
 /// Create a unique temporary directory for one `perform` run.
 ///
-/// Path: `{workdir_or_system_temp_dir}/rbak-{timestamp}-{random}/`
+/// Path: `{workdir_or_system_temp_dir}/pack-{timestamp}-{random}/`
 fn create_run_directory(workdir: Option<&str>) -> Result<TempDir, String> {
     let root_directory = match workdir {
         Some(path) if !path.trim().is_empty() => PathBuf::from(paths::expand_tilde(path)),
@@ -82,7 +82,7 @@ fn create_run_directory(workdir: Option<&str>) -> Result<TempDir, String> {
         .map_err(|error| format!("Failed to create workdir {root_directory:?}: {error}"))?;
 
     let timestamp = current_timestamp_seconds()?;
-    let prefix = format!("rbak-{timestamp}-");
+    let prefix = format!("pack-{timestamp}-");
 
     Builder::new()
         .prefix(&prefix)
@@ -220,7 +220,7 @@ mod tests {
     fn create_run_directory_expands_tilde_in_workdir() {
         let home = std::env::var("HOME").unwrap();
         let timestamp = current_timestamp_seconds().unwrap();
-        let workdir_name = format!("rbak-tilde-workdir-test-{}-{timestamp}", std::process::id());
+        let workdir_name = format!("pack-tilde-workdir-test-{}-{timestamp}", std::process::id());
         let configured_workdir = format!("~/{workdir_name}");
         let expected_workdir = PathBuf::from(home).join(&workdir_name);
 

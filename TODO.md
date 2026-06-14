@@ -19,10 +19,12 @@
       Par défaut, afficher les logs `info`, `warn` et `error`.
       Avec `--verbose`, activer aussi les logs `debug` pour faciliter le diagnostic.
 
-- [ ] Améliorer les messages affichés par le CLI
+- [x] Améliorer les messages affichés par le CLI
       Utiliser des formulations simples et cohérentes :
       `Starting backup run`, `Running model: ...`, `Dumping database: ...`,
       `Creating archive: ...`, `Uploading to storage: ...`, `Backup run completed`, etc.
+      Fait : messages taggés inspirés de GoBackup (`[Config]`, `[Run]`, `[Model: ...]`,
+      `[MySQL: ...]`, `[Archive]`, `[Storage: ...]`, `[Local]`, `[Cleanup]`).
 
 - [ ] Remplacer plus tard `Result<T, String>` par des erreurs typées avec `thiserror`
       Ce n'est pas nécessaire pour démarrer le logging, mais ce sera utile pour afficher
@@ -32,17 +34,17 @@
 
 - [ ] Vérifier que lorsque l'on archive un dossier, si une ecriture/suppression a lieu pendant l'archive, cela ne fait pas planter le processus.
       Par exemple, si un fichier est supprimé pendant l'archive, `tar` peut échouer avec une erreur "file not found". Il faudrait vérifier que cela n'empêche pas l'archive de se terminer correctement, ou ajouter une option pour ignorer ces erreurs.
-      J'ai deja rencontré ce probleme avec gobackup et c'etait chiant, donc je veux m'assurer que rbak gère ça proprement.
+      J'ai deja rencontré ce probleme avec gobackup et c'etait chiant, donc je veux m'assurer que pack gère ça proprement.
 
 ## Temp directory
 
 - [x] Utiliser un dossier unique par run
-      Au lieu de `/tmp/rbak/{model}/` fixe, créer `{workdir_or_system_temp_dir}/rbak-{timestamp}-{random}/{model}/`
+      Au lieu de `/tmp/pack/{model}/` fixe, créer `{workdir_or_system_temp_dir}/pack-{timestamp}-{random}/{model}/`
       Évite les collisions si deux `perform` sont lancés en même temps
 
 - [x] Ajouter un `workdir` configurable
       Comme GoBackup, permettre de choisir la racine des fichiers temporaires :
-      `workdir: /var/tmp/rbak`.
+      `workdir: /var/tmp/pack`.
       Le dossier unique par run serait ensuite créé à l’intérieur de ce `workdir`.
 
 - [x] Passer les chemins en `Path` / `PathBuf` plus loin dans le pipeline
@@ -109,4 +111,4 @@
 
 ## Renommer le nom du CLI
 
-- [x] Renommer le projet et le binaire en `rbak`
+- [x] Renommer le projet et le binaire en `pack`

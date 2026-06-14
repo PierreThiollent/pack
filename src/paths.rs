@@ -33,7 +33,7 @@ mod tests {
 
     #[test]
     fn expand_tilde_keeps_paths_without_home_prefix() {
-        assert_eq!(expand_tilde("/tmp/rbak"), "/tmp/rbak");
+        assert_eq!(expand_tilde("/tmp/pack"), "/tmp/pack");
         assert_eq!(expand_tilde("./local"), "./local");
         assert_eq!(expand_tilde("~"), "~");
     }

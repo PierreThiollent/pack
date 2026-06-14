@@ -139,20 +139,20 @@ mod tests {
 
     #[test]
     fn archive_path_returns_archive_tar_inside_dump_directory() {
-        let dump_directory = Path::new("/tmp/rbak/model");
+        let dump_directory = Path::new("/tmp/pack/model");
 
         let result = archive_path(dump_directory);
 
-        assert_eq!(result, PathBuf::from("/tmp/rbak/model/archive.tar"));
+        assert_eq!(result, PathBuf::from("/tmp/pack/model/archive.tar"));
     }
 
     #[test]
     fn archive_entry_path_prefixes_absolute_path_with_archive_directory() {
-        let source_path = Path::new("/tmp/rbak/config.yml");
+        let source_path = Path::new("/tmp/pack/config.yml");
 
         let result = archive_entry_path(source_path);
 
-        assert_eq!(result, PathBuf::from("archive/tmp/rbak/config.yml"));
+        assert_eq!(result, PathBuf::from("archive/tmp/pack/config.yml"));
     }
 
     #[test]

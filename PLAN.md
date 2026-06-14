@@ -1,11 +1,11 @@
-# rbak — Backup tool in Rust
+# pack — Backup tool in Rust
 
 **Objectif** : Construire un outil de sauvegarde en Rust pour apprendre le langage tout en produisant un binaire fonctionnel.
 
 ## Architecture cible
 
 ```
-rbak/
+pack/
 ├── Cargo.toml
 ├── src/
 │   ├── main.rs              # Entrypoint CLI
@@ -67,8 +67,8 @@ rbak/
 Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, capable de sauvegarder une base de données locale vers un stockage local ou FTP avec compression.
 
 ### CLI
-- [ ] Binaire `rbak` avec sous-commandes : `perform`, `help`
-- [ ] Chargement de la config depuis `~/.rbak/rbak.yml` ou chemin explicite `-c`
+- [ ] Binaire `pack` avec sous-commandes : `perform`, `help`
+- [ ] Chargement de la config depuis `~/.pack/pack.yml` ou chemin explicite `-c`
 - [ ] Parsing YAML de la config (models → databases → storages → compress_with)
 
 ### Modèle / Pipeline
@@ -82,8 +82,9 @@ Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, 
 
 ### Archive
 - [ ] Inclure les dossiers/fichiers listés dans `archive.includes` → tar
-- [ ] Exclure ceux dans `archive.excludes`
 - [ ] Combinaison : dump SQL + archive → tar final
+
+Note : `archive.excludes` est repoussé après le MVP pour garder v0.1.0 simple.
 
 ### Compression
 - [ ] `compress_with.type = "tgz"` → tar.gz
@@ -96,7 +97,7 @@ Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, 
 
 ### Schedule
 - [ ] `before_script` et `after_script` exécutés en shell
-- [ ] Pas encore de daemon : `rbak perform` exécute une seule fois
+- [ ] Pas encore de daemon : `pack perform` exécute une seule fois
 
 ### Tests
 - [ ] Tests unitaires pour le parsing de config
@@ -110,6 +111,7 @@ Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, 
 
 ## v0.2.0 — Storages avancés
 
+- [ ] Ajouter `archive.excludes` pour exclure certains fichiers/dossiers des archives
 - [ ] **SCP** : upload via SSH (crate `ssh2`)
 - [ ] **WebDAV** : upload via HTTP WebDAV
 - [ ] **S3** : upload vers AWS S3/MinIO (crate `aws-sdk-s3`)
@@ -124,14 +126,14 @@ Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, 
 - [ ] Compression : `tbz2` (bzip2) et `txz` (xz/lzma)
 - [ ] **Encrypt** : chiffrement du fichier avant upload (crate `age` — natif Rust, moderne)
 - [ ] **Splitter** : découpage en chunks de `chunk_size` avec extension `-NNN`
-- [ ] **Cycler** : `keep: N` → lecture/écriture de `~/.rbak/cycler.json`, purge des backups les plus anciens
+- [ ] **Cycler** : `keep: N` → lecture/écriture de `~/.pack/cycler.json`, purge des backups les plus anciens
 
 ---
 
 ## v0.4.0 — Daemon + Schedule + Signals
 
-- [ ] Sous-commande `rbak start` → daemon en arrière-plan
-- [ ] Sous-commande `rbak run` → premier plan
+- [ ] Sous-commande `pack start` → daemon en arrière-plan
+- [ ] Sous-commande `pack run` → premier plan
 - [ ] **Scheduler intégré** : cron (`5 4 * * sun`) OU intervalle (`every: 1day`, `at: 04:05`)
 - [ ] **Signal handling** : SIGHUP → reload config, SIGQUIT/SIGTERM → graceful shutdown
 - [ ] PID file pour tracking du daemon

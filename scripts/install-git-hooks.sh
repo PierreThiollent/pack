@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Install rbak git hooks (pre-commit, etc.)
+# Install pack git hooks (pre-commit, etc.)
 # Configures core.hooksPath to point at .githooks/
 #
 # Usage: ./scripts/install-git-hooks.sh

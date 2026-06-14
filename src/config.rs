@@ -68,9 +68,9 @@ pub enum CompressorConfig {
 
 /// Resolve the config file path.
 /// If `config_arg` is `Some`, use it (with tilde expansion).
-/// Otherwise, default to `$HOME/.rbak/rbak.yml`.
+/// Otherwise, default to `$HOME/.pack/pack.yml`.
 pub fn resolve_config_path(config_arg: Option<String>) -> String {
-    let path = config_arg.unwrap_or_else(|| format!("{}/.rbak/rbak.yml", paths::home_dir()));
+    let path = config_arg.unwrap_or_else(|| format!("{}/.pack/pack.yml", paths::home_dir()));
     paths::expand_tilde(&path)
 }
 
@@ -94,13 +94,13 @@ mod tests {
     #[test]
     fn parse_config_with_workdir() {
         let yaml = r#"
-workdir: /var/tmp/rbak
+workdir: /var/tmp/pack
 models: {}
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
 
-        assert_eq!(config.workdir.as_deref(), Some("/var/tmp/rbak"));
+        assert_eq!(config.workdir.as_deref(), Some("/var/tmp/pack"));
     }
 
     #[test]
@@ -252,7 +252,7 @@ models:
     storages:
       local_backup:
         type: local
-        path: ~/Desktop/rbak-backups
+        path: ~/Desktop/pack-backups
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -266,7 +266,7 @@ models:
 
         match storage {
             StorageConfig::Local(local_config) => {
-                assert_eq!(local_config.path, "~/Desktop/rbak-backups");
+                assert_eq!(local_config.path, "~/Desktop/pack-backups");
             }
         }
     }
@@ -446,7 +446,7 @@ foo: bar
     fn resolve_default_config_path() {
         let home = std::env::var("HOME").unwrap();
         let path = resolve_config_path(None);
-        assert_eq!(path, format!("{home}/.rbak/rbak.yml"));
+        assert_eq!(path, format!("{home}/.pack/pack.yml"));
     }
 
     #[test]
@@ -458,8 +458,8 @@ foo: bar
 
     #[test]
     fn resolve_config_path_absolute() {
-        let path = resolve_config_path(Some("/etc/rbak.yml".to_string()));
-        assert_eq!(path, "/etc/rbak.yml");
+        let path = resolve_config_path(Some("/etc/pack.yml".to_string()));
+        assert_eq!(path, "/etc/pack.yml");
     }
 
     #[test]

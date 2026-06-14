@@ -1,20 +1,20 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="rbak est un outil CLI de sauvegarde en Rust pour exporter des bases, empaqueter des fichiers et envoyer les archives vers du stockage local ou cloud."
+      content="pack is a small Rust CLI that dumps MySQL databases, archives files, and copies backups to local storage from one YAML config."
     />
-    <meta property="og:title" content="rbak — backups simples en Rust" />
+    <meta property="og:title" content="pack — simple Rust backups" />
     <meta
       property="og:description"
-      content="Configure une fois, lance en CLI ou via cron, garde des backups fiables sans runtime lourd."
+      content="One YAML file, one CLI command: dump MySQL, bundle files in a tar archive, and copy the result locally."
     />
     <meta property="og:type" content="website" />
     <meta name="theme-color" content="#0f172a" />
-    <title>rbak — backups simples en Rust</title>
+    <title>pack — simple Rust backups</title>
     <style>
       :root {
         color-scheme: dark;
@@ -179,7 +179,7 @@
 
       .hero {
         display: grid;
-        grid-template-columns: minmax(0, 1.03fr) minmax(360px, 0.97fr);
+        grid-template-columns: minmax(0, 1.08fr) minmax(340px, 560px);
         gap: 44px;
         align-items: center;
         padding: 92px 0 72px;
@@ -263,6 +263,8 @@
 
       .hero-visual {
         position: relative;
+        width: min(100%, 560px);
+        justify-self: end;
       }
 
       .hero-visual::before,
@@ -291,6 +293,7 @@
       }
 
       .terminal {
+        width: 100%;
         overflow: hidden;
         border: 1px solid rgba(148, 163, 184, 0.2);
         border-radius: var(--radius);
@@ -341,11 +344,13 @@
       }
 
       .terminal pre {
-        overflow-x: auto;
+        overflow-x: hidden;
         margin: 0;
         color: #dbeafe;
-        font-size: 0.92rem;
-        line-height: 1.78;
+        font-size: 0.84rem;
+        line-height: 1.62;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
       }
 
       .prompt {
@@ -648,6 +653,11 @@
           padding-top: 64px;
         }
 
+        .hero-visual {
+          justify-self: stretch;
+          width: 100%;
+        }
+
         .grid-3,
         .grid-2 {
           grid-template-columns: 1fr 1fr;
@@ -721,14 +731,14 @@
   <body>
     <header class="nav">
       <div class="page nav-inner">
-        <a class="brand" href="#top" aria-label="Accueil rbak">
+        <a class="brand" href="#top" aria-label="pack home">
           <span class="brand-icon" aria-hidden="true">🎒</span>
-          <span class="brand-name">rbak</span>
+          <span class="brand-name">pack</span>
         </a>
-        <nav class="nav-links" aria-label="Navigation principale">
-          <a href="#features">Fonctionnalités</a>
+        <nav class="nav-links" aria-label="Main navigation">
+          <a href="#features">Features</a>
           <a href="#pipeline">Pipeline</a>
-          <a href="#config">Configuration</a>
+          <a href="#config">Config</a>
           <a href="#roadmap">Roadmap</a>
         </nav>
       </div>
@@ -737,27 +747,29 @@
     <main id="top" class="page">
       <section class="hero" aria-labelledby="hero-title">
         <div>
-          <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> CLI Rust · v0.1 en construction</p>
+          <p class="eyebrow"><span class="pulse" aria-hidden="true"></span> Rust CLI · v0.1 in progress</p>
           <h1 id="hero-title">
-            Des backups <span class="gradient-text">simples</span>, fiables, scriptables.
+            Backups that stay <span class="gradient-text">simple</span>.
           </h1>
           <p class="hero-copy">
-            rbak sauvegarde tes bases et tes fichiers depuis une seule configuration YAML. Le but : un
-            binaire léger, sans runtime lourd, prêt à tourner en CLI, en cron, puis en daemon.
+            pack backs up databases and files from one YAML file. Today it handles MySQL dumps,
+            tar archives, local storage, tagged logs, and cleanup of its temporary work directory.
           </p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#config">Voir l’exemple YAML</a>
-            <a class="button button-secondary" href="#roadmap">Lire la roadmap</a>
+            <a class="button button-primary" href="#config">See the YAML example</a>
+            <a class="button button-secondary" href="#roadmap">Read the roadmap</a>
           </div>
-          <div class="badges" aria-label="Informations projet">
+          <div class="badges" aria-label="Project information">
             <span class="badge">🦀 Rust 2024</span>
-            <span class="badge">🎒 CLI unique</span>
-            <span class="badge">🗄️ MySQL maintenant</span>
-            <span class="badge">🔐 age prévu</span>
+            <span class="badge">🎒 Single CLI</span>
+            <span class="badge">🗄️ MySQL</span>
+            <span class="badge">📦 tar archives</span>
+            <span class="badge">💾 local storage</span>
+            <span class="badge">🔐 age planned</span>
           </div>
         </div>
 
-        <aside class="hero-visual" aria-label="Aperçu de rbak en terminal">
+        <aside class="hero-visual" aria-label="pack terminal preview">
           <div class="terminal">
             <div class="terminal-bar">
               <div class="dots" aria-hidden="true">
@@ -765,29 +777,37 @@
                 <span class="dot dot-yellow"></span>
                 <span class="dot dot-green"></span>
               </div>
-              <span class="terminal-title">rbak perform</span>
+              <span class="terminal-title">pack perform</span>
             </div>
             <div class="terminal-body">
-              <pre><span class="prompt">$</span> rbak perform -c rbak.yml
-Model: my_site
-  Database: mysql
-  ✔ mysql done
+              <pre><span class="prompt">$</span> pack perform -c pack.yml
+INFO [Config] Loaded config: pack.yml
+INFO [Run] Starting backup run
+INFO [Run] Work directory: /tmp/pack-...
+INFO [Model: my_site] Running model
+INFO [MySQL: primary] Dumping database
+INFO [Archive] Creating archive: 1 include(s)
+INFO [Storage: local] Uploading backup
+INFO [Local] Store succeeded: ~/backups/pack/my_site
+INFO [Run] Backup run completed
 
-<span class="comment"># pipeline cible</span>
-dump → archive → compress → encrypt → upload</pre>
+<span class="comment"># current</span>
+dump → archive.tar → local storage → cleanup
+<span class="comment"># next</span>
+compress_with.type = tgz</pre>
             </div>
-            <div class="status-card" aria-label="État du projet">
+            <div class="status-card" aria-label="Project status">
               <div class="status-item">
                 <span class="status-value">0.1.0</span>
-                <span class="status-label">version actuelle</span>
+                <span class="status-label">current version</span>
               </div>
               <div class="status-item">
-                <span class="status-value">34</span>
-                <span class="status-label">tests Rust</span>
+                <span class="status-value">65</span>
+                <span class="status-label">Rust tests</span>
               </div>
               <div class="status-item">
                 <span class="status-value">MIT</span>
-                <span class="status-label">licence prévue</span>
+                <span class="status-label">planned license</span>
               </div>
             </div>
           </div>
@@ -797,44 +817,44 @@ dump → archive → compress → encrypt → upload</pre>
       <section id="features" aria-labelledby="features-title">
         <div class="section-head">
           <div>
-            <p class="section-kicker">Pourquoi rbak</p>
-            <h2 id="features-title">Un outil de backup pensé pour les serveurs applicatifs.</h2>
+            <p class="section-kicker">Why pack</p>
+            <h2 id="features-title">A backup tool for small application servers.</h2>
           </div>
           <p class="section-copy">
-            Configure une fois, lance à la demande ou sur un planning, et garde les archives hors du serveur.
+            Set it up once, run it by hand or from cron, and keep a copy away from the app's working directory.
           </p>
         </div>
 
         <div class="grid grid-3">
           <article class="card feature-card">
             <div class="feature-icon" aria-hidden="true">⚙️</div>
-            <h3>Configuration YAML</h3>
-            <p>Plusieurs modèles dans un seul fichier, avec valeurs par défaut et messages d’erreur lisibles.</p>
+            <h3>YAML configuration</h3>
+            <p>Keep several backup models in one file: databases, archive inputs, compression settings, local storage, and a temporary workdir.</p>
           </article>
           <article class="card feature-card">
             <div class="feature-icon" aria-hidden="true">🗄️</div>
-            <h3>Dumps MySQL</h3>
-            <p>Exécution via le client natif <code>mysqldump</code>, avec sortie SQL dédiée par base.</p>
+            <h3>MySQL dumps</h3>
+            <p>Uses the native <code>mysqldump</code> client and writes one SQL file per configured database.</p>
           </article>
           <article class="card feature-card">
             <div class="feature-icon" aria-hidden="true">🧹</div>
-            <h3>Workdir propre</h3>
-            <p>Dossier temporaire configurable, avec un dossier unique par run, un sous-dossier par modèle et nettoyage automatique même en cas d’échec.</p>
+            <h3>Clean workdir</h3>
+            <p>Each run gets its own temporary directory, split by model, and pack tries to clean it up even when a step fails.</p>
           </article>
           <article class="card feature-card">
             <div class="feature-icon" aria-hidden="true">📦</div>
-            <h3>Archives à venir</h3>
-            <p>Inclusion de fichiers, tar, compression <code>tgz</code>/<code>tbz2</code>/<code>txz</code>, puis split.</p>
+            <h3>Tar archive</h3>
+            <p>Adds files and directories from <code>archive.includes</code> to a tar archive built in Rust.</p>
           </article>
           <article class="card feature-card">
             <div class="feature-icon" aria-hidden="true">☁️</div>
-            <h3>Stockages prévus</h3>
-            <p>Local, FTP, SFTP, SCP, S3, MinIO, WebDAV et autres destinations cloud au fil des versions.</p>
+            <h3>Local storage</h3>
+            <p>Copies the model output to a persistent local directory. FTP, SFTP, SCP, S3, and WebDAV come later.</p>
           </article>
           <article class="card feature-card">
             <div class="feature-icon" aria-hidden="true">🔔</div>
             <h3>Notifications</h3>
-            <p>Webhook, Slack, Discord, mail et Telegram sont prévus après le pipeline de backup complet.</p>
+            <p>Not built yet. Webhook, Slack, Discord, email, and Telegram are on the longer-term list.</p>
           </article>
         </div>
       </section>
@@ -842,11 +862,12 @@ dump → archive → compress → encrypt → upload</pre>
       <section id="pipeline" aria-labelledby="pipeline-title">
         <div class="section-head">
           <div>
-            <p class="section-kicker">Pipeline cible</p>
-            <h2 id="pipeline-title">Du dump brut à l’archive externalisée.</h2>
+            <p class="section-kicker">Target pipeline</p>
+            <h2 id="pipeline-title">From raw dumps to an archive stored elsewhere.</h2>
           </div>
           <p class="section-copy">
-            Aujourd’hui rbak couvre le dump MySQL et le cleanup. Le reste arrive par étapes verticales.
+            The current build covers MySQL dumps, tar archive creation, local storage, tagged logs, and cleanup.
+            The config already parses <code>compress_with.type = tgz</code>; the runtime compressor is next.
           </p>
         </div>
 
@@ -854,19 +875,19 @@ dump → archive → compress → encrypt → upload</pre>
           <ol class="pipeline-list">
             <li class="pipeline-step is-live">
               <strong>Dump databases</strong>
-              <span>implémenté</span>
+              <span>implemented</span>
             </li>
-            <li class="pipeline-step is-next">
+            <li class="pipeline-step is-live">
               <strong>Collect files</strong>
-              <span>prochaine étape</span>
+              <span>archive.includes</span>
             </li>
-            <li class="pipeline-step is-next">
+            <li class="pipeline-step is-live">
               <strong>Create archive</strong>
-              <span>tar</span>
+              <span>archive.tar</span>
             </li>
             <li class="pipeline-step is-next">
               <strong>Compress</strong>
-              <span>tgz / tbz2 / txz</span>
+              <span>config parsed</span>
             </li>
             <li class="pipeline-step">
               <strong>Encrypt</strong>
@@ -876,9 +897,9 @@ dump → archive → compress → encrypt → upload</pre>
               <strong>Split</strong>
               <span>chunks</span>
             </li>
-            <li class="pipeline-step">
-              <strong>Upload</strong>
-              <span>local / cloud</span>
+            <li class="pipeline-step is-live">
+              <strong>Store</strong>
+              <span>local</span>
             </li>
             <li class="pipeline-step">
               <strong>Rotate</strong>
@@ -891,19 +912,23 @@ dump → archive → compress → encrypt → upload</pre>
       <section id="config" aria-labelledby="config-title">
         <div class="card code-card">
           <div class="code-copy">
-            <p class="section-kicker">Configuration</p>
-            <h2 id="config-title">Un modèle = une unité de backup.</h2>
+            <p class="section-kicker">Config</p>
+            <h2 id="config-title">One model, one backup unit.</h2>
             <p>
-              rbak lit <code>~/.rbak/rbak.yml</code> par défaut, ou le chemin passé avec
-              <code>-c</code>/<code>--config</code>. Chaque modèle peut contenir plusieurs databases.
+              pack reads <code>~/.pack/pack.yml</code> by default, or the file passed with
+              <code>-c</code>/<code>--config</code>. A model can define databases,
+              files to archive, compression settings, and storage destinations.
             </p>
             <ul class="check-list">
-              <li>CLI : <code>rbak perform</code></li>
-              <li>Chemin explicite : <code>rbak perform -c ./rbak.yml</code></li>
-              <li>Workdir configurable pour les fichiers temporaires</li>
+              <li>Command: <code>pack perform</code></li>
+              <li>Explicit path: <code>pack perform -c ./pack.yml</code></li>
+              <li>Configurable workdir for temporary files</li>
+              <li>Tar archive via <code>archive.includes</code></li>
+              <li>TGZ compression config via <code>compress_with.type</code></li>
+              <li>Local storage via <code>storages.local.path</code></li>
             </ul>
           </div>
-          <div class="code-panel" aria-label="Exemple de configuration YAML">
+          <div class="code-panel" aria-label="YAML configuration example">
             <pre><span class="yaml-key">workdir</span>: <span class="yaml-value">/tmp</span>
 
 <span class="yaml-key">models</span>:
@@ -915,7 +940,17 @@ dump → archive → compress → encrypt → upload</pre>
         <span class="yaml-key">port</span>: <span class="yaml-value">3306</span>
         <span class="yaml-key">database</span>: <span class="yaml-value">myapp_prod</span>
         <span class="yaml-key">username</span>: <span class="yaml-value">root</span>
-        <span class="yaml-key">password</span>: <span class="yaml-value">s3cr3t</span></pre>
+        <span class="yaml-key">password</span>: <span class="yaml-value">s3cr3t</span>
+    <span class="yaml-key">archive</span>:
+      <span class="yaml-key">includes</span>:
+        - <span class="yaml-value">~/app/shared</span>
+        - <span class="yaml-value">~/app/.env.example</span>
+    <span class="yaml-key">compress_with</span>:
+      <span class="yaml-key">type</span>: <span class="yaml-value">tgz</span>
+    <span class="yaml-key">storages</span>:
+      <span class="yaml-key">local</span>:
+        <span class="yaml-key">type</span>: <span class="yaml-value">local</span>
+        <span class="yaml-key">path</span>: <span class="yaml-value">~/backups/pack</span></pre>
           </div>
         </div>
       </section>
@@ -924,55 +959,55 @@ dump → archive → compress → encrypt → upload</pre>
         <div class="section-head">
           <div>
             <p class="section-kicker">Roadmap</p>
-            <h2 id="roadmap-title">Petit binaire maintenant, pipeline complet demain.</h2>
+            <h2 id="roadmap-title">Small binary first. Full pipeline over time.</h2>
           </div>
           <p class="section-copy">
-            Le projet avance par versions : d’abord le MVP CLI, puis les stockages, la sécurité et l’automatisation.
+            The project moves in small versions: first a useful CLI, then storage backends, safety features, and automation.
           </p>
         </div>
 
         <div class="grid grid-2">
           <article class="card roadmap-card">
             <span class="roadmap-version">v0.1</span>
-            <h3>CLI, YAML, MySQL</h3>
-            <p>Base actuelle : parser de config, sous-commande perform, dumps MySQL et pipeline par modèle.</p>
+            <h3>CLI, YAML, MySQL, tar archive, local, tgz config</h3>
+            <p>Current base: <code>perform</code>, MySQL dumps, tar archives for files/directories, local storage, tagged logs, cleanup, and tgz config parsing.</p>
           </article>
           <article class="card roadmap-card">
-            <span class="roadmap-version">v0.2</span>
-            <h3>Archives et stockages</h3>
-            <p>Tar, compression, stockage local, FTP, SFTP, SCP, S3/MinIO et WebDAV.</p>
+            <span class="roadmap-version">v0.1 next</span>
+            <h3>Runtime compression and FTP/SFTP</h3>
+            <p>Wire the tgz compressor into the pipeline, then store the final artifact locally or through FTP/SFTP.</p>
           </article>
           <article class="card roadmap-card">
-            <span class="roadmap-version">v0.3–0.5</span>
-            <h3>Chiffrement, daemon, notifications</h3>
-            <p>Chiffrement age, découpage, rétention, scheduler intégré et notifiers success/failure.</p>
+            <span class="roadmap-version">v0.2–0.5</span>
+            <h3>Advanced storage, encryption, daemon, notifications</h3>
+            <p><code>archive.excludes</code>, SCP, S3/MinIO, WebDAV, age encryption, splitting, retention, scheduling, and notifiers.</p>
           </article>
           <article class="card roadmap-card">
             <span class="roadmap-version">v1.0</span>
-            <h3>Databases et polish</h3>
-            <p>PostgreSQL, Redis, MongoDB, SQLite, MariaDB, MSSQL, InfluxDB, etcd, Firebird et documentation complète.</p>
+            <h3>More databases and polish</h3>
+            <p>PostgreSQL, Redis, MongoDB, SQLite, MariaDB, MSSQL, InfluxDB, etcd, Firebird, and complete docs.</p>
           </article>
         </div>
       </section>
 
       <section aria-labelledby="cta-title">
         <div class="cta">
-          <h2 id="cta-title">Prêt à automatiser tes backups sans usine à gaz ?</h2>
+          <h2 id="cta-title">Want a backup command you can actually read?</h2>
           <p>
-            Compile rbak, pose ton fichier YAML, puis lance un backup à la demande. Le reste du pipeline arrive
-            progressivement, en gardant le même objectif : fiable, lisible, maintenable.
+            Build pack, drop in a YAML file, and run a backup when you need it. It can already dump,
+            archive, and copy locally; runtime compression and remote storage come next.
           </p>
           <div class="hero-actions">
-            <a class="button button-primary" href="#config">Démarrer avec YAML</a>
-            <a class="button button-secondary" href="#pipeline">Voir le pipeline</a>
+            <a class="button button-primary" href="#config">Start with YAML</a>
+            <a class="button button-secondary" href="#pipeline">View the pipeline</a>
           </div>
         </div>
       </section>
     </main>
 
     <footer class="page footer">
-      <span>rbak 🎒 — backup tool written in Rust.</span>
-      <span>Version 0.1.0 · Licence MIT</span>
+      <span>pack 🎒 — backup tool written in Rust.</span>
+      <span>Version 0.1.0 · MIT planned</span>
     </footer>
   </body>
 </html>
