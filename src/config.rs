@@ -1,4 +1,5 @@
 use crate::archive::ArchiveConfig;
+use crate::compressor::CompressorConfig;
 use crate::database::mysql::MySQLConfig;
 use crate::paths;
 use crate::storage::local::LocalConfig;
@@ -56,14 +57,6 @@ impl DatabaseConfig {
 pub enum StorageConfig {
     #[serde(rename = "local")]
     Local(LocalConfig),
-}
-
-/// Configuration for compression — the `type` field determines which variant is used
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum CompressorConfig {
-    #[serde(rename = "tgz")]
-    Tgz,
 }
 
 /// Resolve the config file path.
