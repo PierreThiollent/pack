@@ -1,6 +1,6 @@
 use crate::archive;
 use crate::compressor;
-use crate::config::{Config, Model};
+use crate::config::{Config, Model, validate_model_name};
 use crate::database;
 use crate::paths;
 use crate::storage;
@@ -96,6 +96,8 @@ fn create_run_directory(workdir: Option<&str>) -> Result<TempDir, String> {
 ///
 /// Path: `{run_directory}/{model_name}/`
 fn create_dump_directory(run_directory: &Path, model_name: &str) -> Result<PathBuf, String> {
+    validate_model_name(model_name)?;
+
     let directory = run_directory.join(model_name);
 
     std::fs::create_dir_all(&directory)
@@ -252,5 +254,22 @@ mod tests {
         assert!(dump_directory.is_dir(), "Path should be a directory");
 
         run_directory.close().unwrap();
+    }
+
+    #[test]
+    fn create_dump_directory_rejects_path_traversal_model_name() {
+        let parent_directory = tempfile::tempdir().unwrap();
+        let run_directory = parent_directory.path().join("run");
+        std::fs::create_dir(&run_directory).unwrap();
+
+        let result = create_dump_directory(&run_directory, "../escaped");
+
+        assert!(result.is_err());
+        assert!(
+            !parent_directory.path().join("escaped").exists(),
+            "Path traversal should not create directories outside the run directory"
+        );
+
+        parent_directory.close().unwrap();
     }
 }
