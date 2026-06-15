@@ -32,13 +32,31 @@
 
 ## Compressor
 
-- [ ] Étudier une optimisation optionnelle avec `pigz` plus tard
-      `pigz` est une implémentation parallèle de gzip. Sur de gros dumps ou de grosses archives,
-      le gain peut être important parce que la compression utilise plusieurs cœurs CPU au lieu d'un seul.
-      GoBackup le détecte automatiquement pour les formats gzip (`tgz`, `tar.gz`) et l'utilise si installé.
-      Pour `pack`, on garde le MVP en Rust natif avec `flate2` pour rester portable et testable.
-      Option future possible : ajouter un mode optionnel qui utilise `pigz` si l'utilisateur le demande,
-      mais ne pas en faire une dépendance du MVP.
+- [ ] V2 compressor : utiliser `pigz` automatiquement si disponible, sinon fallback `flate2`
+      Pour la première version du compressor, on garde `flate2` : c'est simple, portable,
+      testable, et suffisant pour valider le pipeline `dump → archive → tgz → storage`.
+      Limite connue : la compression gzip actuelle est mono-threadée et peut devenir un
+      goulot d'étranglement sur de gros dumps ou de grosses archives.
+
+      Décision V2 : reproduire l'approche de GoBackup pour `tgz` / `tar.gz` : détecter `pigz`
+      dans le `PATH`, l'utiliser quand il est disponible, et retomber automatiquement sur
+      `flate2` sinon. Cela donne un gain multi-thread rapide sans compliquer la compilation
+      ni la distribution de `pack` avec des dépendances natives intégrées.
+
+      Points d'implémentation à prévoir :
+      - détecter `pigz` proprement et logger le backend choisi ;
+      - streamer `tar::Builder` vers `pigz.stdin` ;
+      - écrire `pigz.stdout` vers le fichier `.tar.gz` ;
+      - collecter/propager `stderr` et le code de sortie ;
+      - garantir le fallback `flate2` si `pigz` est absent ;
+      - ajouter des tests avec un faux binaire `pigz` dans un `PATH` temporaire.
+
+      Piste future après V2 : évaluer `gzp`, la librairie utilisée par `crabz`, si on veut un
+      backend gzip multi-threadé intégré au binaire plutôt qu'un process externe. `gzp` fournit
+      un `Write` parallèle compatible avec notre pipeline streaming, mais ses versions récentes
+      semblent privilégier des backends natifs C (`zlib-ng` / `libdeflate`) plutôt qu'un backend
+      100% Rust pur. Il faudra donc benchmarker et vérifier l'impact sur la portabilité, la
+      compilation, les releases et la surface de sécurité avant d'en faire un backend officiel.
 
 ## Archive
 
