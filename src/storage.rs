@@ -1,5 +1,7 @@
+pub mod ftp;
 pub mod local;
 
+use crate::storage::ftp::FtpConfig;
 use crate::storage::local::LocalConfig;
 use serde::Deserialize;
 use std::path::Path;
@@ -10,6 +12,9 @@ use std::path::Path;
 pub enum StorageConfig {
     #[serde(rename = "local")]
     Local(LocalConfig),
+
+    #[serde(rename = "ftp")]
+    Ftp(FtpConfig),
 }
 
 /// Store a backup artifact based on the configuration.
@@ -20,6 +25,10 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
         StorageConfig::Local(local_config) => {
             let local = local::Local::new(local_config, source_path);
             local.perform()
+        }
+        StorageConfig::Ftp(ftp_config) => {
+            let ftp = ftp::Ftp::new(ftp_config);
+            ftp.perform()
         }
     }
 }

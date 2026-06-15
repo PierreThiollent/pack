@@ -269,6 +269,89 @@ models:
             StorageConfig::Local(local_config) => {
                 assert_eq!(local_config.path, "~/Desktop/pack-backups");
             }
+            StorageConfig::Ftp(_) => panic!("Expected local storage"),
+        }
+    }
+
+    #[test]
+    fn parse_ftp_storage_with_all_fields() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: ftp
+        host: ftp.example.com
+        port: 2121
+        timeout: 30
+        path: /backup1/foo
+        username: user1
+        password: pass1
+        tls: true
+        explicit_tls: true
+        no_check_certificate: true
+        keep: 15
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Ftp(ftp_config) => {
+                assert_eq!(ftp_config.host, "ftp.example.com");
+                assert_eq!(ftp_config.port, 2121);
+                assert_eq!(ftp_config.timeout, 30);
+                assert_eq!(ftp_config.path, "/backup1/foo");
+                assert_eq!(ftp_config.username, "user1");
+                assert_eq!(ftp_config.password, "pass1");
+                assert!(ftp_config.tls);
+                assert!(ftp_config.explicit_tls);
+                assert!(ftp_config.no_check_certificate);
+                assert_eq!(ftp_config.keep, 15);
+            }
+            StorageConfig::Local(_) => panic!("Expected FTP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_ftp_storage_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: ftp
+        host: ftp.example.com
+        username: user1
+        password: pass1
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Ftp(ftp_config) => {
+                assert_eq!(ftp_config.port, 21);
+                assert_eq!(ftp_config.timeout, 300);
+                assert_eq!(ftp_config.path, "/");
+                assert!(!ftp_config.tls);
+                assert!(!ftp_config.explicit_tls);
+                assert!(!ftp_config.no_check_certificate);
+                assert_eq!(ftp_config.keep, 0);
+            }
+            StorageConfig::Local(_) => panic!("Expected FTP storage"),
         }
     }
 
