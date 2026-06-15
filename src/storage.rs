@@ -1,7 +1,16 @@
 pub mod local;
 
-use crate::config::StorageConfig;
+use crate::storage::local::LocalConfig;
+use serde::Deserialize;
 use std::path::Path;
+
+/// Configuration for a storage — the `type` field determines which variant is used.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type")]
+pub enum StorageConfig {
+    #[serde(rename = "local")]
+    Local(LocalConfig),
+}
 
 /// Store a backup artifact based on the configuration.
 ///

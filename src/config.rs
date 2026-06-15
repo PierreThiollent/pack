@@ -2,7 +2,7 @@ use crate::archive::ArchiveConfig;
 use crate::compressor::CompressorConfig;
 use crate::database::mysql::MySQLConfig;
 use crate::paths;
-use crate::storage::local::LocalConfig;
+use crate::storage::StorageConfig;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tracing::error;
@@ -49,14 +49,6 @@ impl DatabaseConfig {
             DatabaseConfig::MySQL(_) => "MySQL",
         }
     }
-}
-
-/// Configuration for a storage — the `type` field determines which variant is used
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum StorageConfig {
-    #[serde(rename = "local")]
-    Local(LocalConfig),
 }
 
 /// Resolve the config file path.
