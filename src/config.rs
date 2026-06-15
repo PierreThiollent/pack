@@ -1,6 +1,6 @@
 use crate::archive::ArchiveConfig;
 use crate::compressor::CompressorConfig;
-use crate::database::mysql::MySQLConfig;
+use crate::database::DatabaseConfig;
 use crate::paths;
 use crate::storage::StorageConfig;
 use serde::Deserialize;
@@ -33,22 +33,6 @@ pub struct Model {
 
     /// Compression configuration for the backup artifact
     pub compress_with: Option<CompressorConfig>,
-}
-
-/// Configuration for a database — the `type` field determines which variant is used
-#[derive(Debug, Deserialize)]
-#[serde(tag = "type")]
-pub enum DatabaseConfig {
-    #[serde(rename = "mysql")]
-    MySQL(MySQLConfig),
-}
-
-impl DatabaseConfig {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            DatabaseConfig::MySQL(_) => "MySQL",
-        }
-    }
 }
 
 /// Resolve the config file path.
