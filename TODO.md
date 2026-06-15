@@ -95,8 +95,10 @@
       Aujourd'hui `database::run()` attend un `&str`, donc `model.rs` convertit le chemin avec
       `to_string_lossy()`. Plus tard, accepter directement un `&Path` serait plus idiomatique.
 
-- [ ] Sécuriser les noms utilisés dans les chemins temporaires
+- [x] Sécuriser les noms utilisés dans les chemins temporaires
       Empêcher un nom de model bizarre comme `../foo` de sortir du dossier de run.
+      Fait : les noms de models sont maintenant limités à `[A-Za-z0-9_-]+` avant de créer
+      leur dossier temporaire.
 
 - [ ] Rendre le timestamp du dossier de run plus lisible
       Aujourd'hui le dossier utilise un timestamp Unix en secondes. Plus tard, on pourrait utiliser

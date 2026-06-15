@@ -43,6 +43,23 @@ pub fn resolve_config_path(config_arg: Option<String>) -> String {
     paths::expand_tilde(&path)
 }
 
+pub(crate) fn validate_model_name(model_name: &str) -> Result<(), String> {
+    if model_name.is_empty() {
+        return Err("Model name cannot be empty".to_string());
+    }
+
+    if !model_name
+        .chars()
+        .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
+    {
+        return Err(format!(
+            "Invalid model name `{model_name}`: use only ASCII letters, digits, `_` and `-`"
+        ));
+    }
+
+    Ok(())
+}
+
 /// Load and parse the config file from the given path.
 /// Exits the process with an error message on failure.
 pub fn load_config(path: &str) -> Config {
@@ -50,10 +67,25 @@ pub fn load_config(path: &str) -> Config {
         error!("[Config] Failed to read config file {path}: {error}");
         std::process::exit(1);
     });
-    serde_yaml::from_str(&yaml_content).unwrap_or_else(|error| {
+    let config: Config = serde_yaml::from_str(&yaml_content).unwrap_or_else(|error| {
         error!("[Config] Failed to parse config file {path}: {error}");
         std::process::exit(1);
-    })
+    });
+
+    validate_config(&config).unwrap_or_else(|error| {
+        error!("[Config] Invalid config file {path}: {error}");
+        std::process::exit(1);
+    });
+
+    config
+}
+
+fn validate_config(config: &Config) -> Result<(), String> {
+    for model_name in config.models.keys() {
+        validate_model_name(model_name)?;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -409,6 +441,57 @@ foo: bar
 
         let result = serde_yaml::from_str::<Config>(yaml);
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_config_accepts_safe_model_names() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+  wordpress-prod:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn validate_config_rejects_unsafe_model_names() {
+        let yaml = r#"
+models:
+  ../escaped:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid model name"));
+    }
+
+    #[test]
+    fn validate_model_name_accepts_safe_names() {
+        for model_name in ["my_app", "wordpress-prod", "client42"] {
+            assert!(
+                validate_model_name(model_name).is_ok(),
+                "Model name should be accepted: {model_name}"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_model_name_rejects_unsafe_names() {
+        for model_name in [
+            "", "../foo", "foo/bar", "foo\\bar", ".hidden", "my.app", "my app",
+        ] {
+            assert!(
+                validate_model_name(model_name).is_err(),
+                "Model name should be rejected: {model_name}"
+            );
+        }
     }
 
     #[test]
