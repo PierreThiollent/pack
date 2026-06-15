@@ -19,6 +19,15 @@
       Par défaut, afficher les logs `info`, `warn` et `error`.
       Avec `--verbose`, activer aussi les logs `debug` pour faciliter le diagnostic.
 
+- [x] Améliorer le format des dates dans les logs
+      Aujourd'hui les logs affichent une date UTC avec suffixe `Z`, par exemple
+      `2026-06-15T12:06:52.584023Z`, alors que l'heure locale peut être `14:06`.
+      Pour un CLI utilisé manuellement, ce décalage est confus, surtout que les noms d'archives
+      `tar.gz` utilisent déjà l'heure locale.
+      Fait : les logs affichent maintenant l'heure locale avec offset explicite, sans fractions
+      de seconde, par exemple `2026-06-15 14:06:52 +02:00`. L'UTC reste utile pour des logs
+      machine, donc on décidera plus tard si on veut rendre ce format configurable.
+
 - [x] Améliorer les messages affichés par le CLI
       Utiliser des formulations simples et cohérentes :
       `Starting backup run`, `Running model: ...`, `Dumping database: ...`,
