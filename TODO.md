@@ -19,6 +19,13 @@
       Par défaut, afficher les logs `info`, `warn` et `error`.
       Avec `--verbose`, activer aussi les logs `debug` pour faciliter le diagnostic.
 
+- [ ] Étudier les tags de logs colorés
+      Aujourd'hui les tags comme `[Config]`, `[Run]`, `[Archive]` ou `[Local]` sont du texte
+      directement inclus dans le message de log. Pour les colorer proprement, il faudra choisir
+      entre une approche simple avec des couleurs ANSI dans les messages, une macro/helper de log,
+      ou une approche plus structurée avec un champ `tag` et un formatter dédié. À garder comme
+      polish CLI, pas prioritaire pour le MVP.
+
 - [x] Améliorer le format des dates dans les logs
       Aujourd'hui les logs affichent une date UTC avec suffixe `Z`, par exemple
       `2026-06-15T12:06:52.584023Z`, alors que l'heure locale peut être `14:06`.
