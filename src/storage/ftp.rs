@@ -1,3 +1,4 @@
+use crate::storage::remote_directories;
 use serde::Deserialize;
 use std::fs::File;
 use std::net::ToSocketAddrs;
@@ -68,6 +69,7 @@ impl<'a> Ftp<'a> {
         );
 
         let mut ftp_stream = self.open()?;
+        self.ensure_remote_directory(&mut ftp_stream)?;
         let remote_path = self.remote_path()?;
         self.upload(&mut ftp_stream, &remote_path)?;
         ftp_stream
@@ -95,6 +97,21 @@ impl<'a> Ftp<'a> {
             .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
 
         Ok(ftp_stream)
+    }
+
+    fn ensure_remote_directory(&self, ftp_stream: &mut FtpStream) -> Result<(), String> {
+        for directory in remote_directories(&self.config.path) {
+            if ftp_stream.cwd(&directory).is_ok() {
+                continue;
+            }
+
+            info!("[FTP] Creating remote directory: {directory}");
+            ftp_stream
+                .mkdir(&directory)
+                .map_err(|error| format!("Failed to create FTP directory {directory}: {error}"))?;
+        }
+
+        Ok(())
     }
 
     fn upload(&self, ftp_stream: &mut FtpStream, remote_path: &str) -> Result<(), String> {
