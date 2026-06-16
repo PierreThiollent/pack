@@ -19,3 +19,15 @@ models:
       local:
         type: local
         path: ~/backups/pack
+      ftp:
+        type: ftp
+        host: ftp.example.com
+        port: 21
+        timeout: 300
+        path: /backups
+        username: pack
+        password: secret
+        tls: false
+        explicit_tls: false
+        no_check_certificate: false
+        keep: 15
