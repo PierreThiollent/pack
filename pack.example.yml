@@ -29,3 +29,14 @@ models:
         password: secret
         explicit_tls: false
         no_check_certificate: false
+      sftp:
+        type: sftp
+        host: sftp.example.com
+        port: 22
+        timeout: 300
+        path: /backups
+        username: pack
+        password: secret
+        # Alternative authentication method:
+        # private_key: ~/.ssh/id_rsa
+        # passphrase: secret-passphrase
