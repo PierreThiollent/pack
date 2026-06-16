@@ -27,7 +27,7 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
             local.perform()
         }
         StorageConfig::Ftp(ftp_config) => {
-            let ftp = ftp::Ftp::new(ftp_config);
+            let ftp = ftp::Ftp::new(ftp_config, source_path);
             ftp.perform()
         }
     }
