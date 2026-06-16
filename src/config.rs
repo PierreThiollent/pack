@@ -287,10 +287,8 @@ models:
         path: /backup1/foo
         username: user1
         password: pass1
-        tls: true
         explicit_tls: true
         no_check_certificate: true
-        keep: 15
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -310,10 +308,8 @@ models:
                 assert_eq!(ftp_config.path, "/backup1/foo");
                 assert_eq!(ftp_config.username, "user1");
                 assert_eq!(ftp_config.password, "pass1");
-                assert!(ftp_config.tls);
                 assert!(ftp_config.explicit_tls);
                 assert!(ftp_config.no_check_certificate);
-                assert_eq!(ftp_config.keep, 15);
             }
             StorageConfig::Local(_) => panic!("Expected FTP storage"),
         }
@@ -346,10 +342,8 @@ models:
                 assert_eq!(ftp_config.port, 21);
                 assert_eq!(ftp_config.timeout, 300);
                 assert_eq!(ftp_config.path, "/");
-                assert!(!ftp_config.tls);
                 assert!(!ftp_config.explicit_tls);
                 assert!(!ftp_config.no_check_certificate);
-                assert_eq!(ftp_config.keep, 0);
             }
             StorageConfig::Local(_) => panic!("Expected FTP storage"),
         }
