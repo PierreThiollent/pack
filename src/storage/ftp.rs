@@ -4,8 +4,9 @@ use std::fs::File;
 use std::net::ToSocketAddrs;
 use std::path::Path;
 use std::time::Duration;
-use suppaftp::FtpStream;
+use suppaftp::native_tls::TlsConnector;
 use suppaftp::types::FileType;
+use suppaftp::{FtpStream, ImplFtpStream, NativeTlsConnector, NativeTlsFtpStream, TlsStream};
 use tracing::info;
 
 /// Configuration specific to FTP storage.
@@ -26,16 +27,10 @@ pub struct FtpConfig {
     pub password: String,
 
     #[serde(default)]
-    pub tls: bool,
-
-    #[serde(default)]
     pub explicit_tls: bool,
 
     #[serde(default)]
     pub no_check_certificate: bool,
-
-    #[serde(default)]
-    pub keep: u32,
 }
 
 pub struct Ftp<'a> {
@@ -54,24 +49,22 @@ impl<'a> Ftp<'a> {
     pub fn perform(&self) -> Result<(), String> {
         self.validate_config()?;
 
-        if self.config.tls || self.config.explicit_tls {
-            return Err(format!(
-                "FTP TLS is not implemented yet (no_check_certificate={})",
-                self.config.no_check_certificate
-            ));
+        if self.config.explicit_tls {
+            let mut ftp_stream = self.open_explicit_tls()?;
+            self.perform_with_stream(&mut ftp_stream)
+        } else {
+            let mut ftp_stream = self.open_plain()?;
+            self.perform_with_stream(&mut ftp_stream)
         }
+    }
 
-        info!(
-            "[FTP] Connecting to {} with remote path {} (keep={})",
-            self.remote_address(),
-            self.config.path,
-            self.config.keep
-        );
-
-        let mut ftp_stream = self.open()?;
-        self.ensure_remote_directory(&mut ftp_stream)?;
+    fn perform_with_stream<T: TlsStream>(
+        &self,
+        ftp_stream: &mut ImplFtpStream<T>,
+    ) -> Result<(), String> {
+        self.ensure_remote_directory(ftp_stream)?;
         let remote_path = self.remote_path()?;
-        self.upload(&mut ftp_stream, &remote_path)?;
+        self.upload(ftp_stream, &remote_path)?;
         ftp_stream
             .quit()
             .map_err(|error| format!("Failed to close FTP connection: {error}"))?;
@@ -80,16 +73,14 @@ impl<'a> Ftp<'a> {
         Ok(())
     }
 
-    fn open(&self) -> Result<FtpStream, String> {
-        let timeout = Duration::from_secs(self.config.timeout);
-        let socket_address = self
-            .remote_address()
-            .to_socket_addrs()
-            .map_err(|error| format!("Failed to resolve FTP server address: {error}"))?
-            .next()
-            .ok_or_else(|| "Failed to resolve FTP server address".to_string())?;
+    fn open_plain(&self) -> Result<FtpStream, String> {
+        info!(
+            "[FTP] Connecting to {} with remote path {}",
+            self.remote_address(),
+            self.config.path
+        );
 
-        let mut ftp_stream = FtpStream::connect_timeout(socket_address, timeout)
+        let mut ftp_stream = FtpStream::connect_timeout(self.socket_address()?, self.timeout())
             .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
 
         ftp_stream
@@ -99,7 +90,53 @@ impl<'a> Ftp<'a> {
         Ok(ftp_stream)
     }
 
-    fn ensure_remote_directory(&self, ftp_stream: &mut FtpStream) -> Result<(), String> {
+    fn open_explicit_tls(&self) -> Result<NativeTlsFtpStream, String> {
+        info!(
+            "[FTP] Connecting to {} with explicit TLS and remote path {}",
+            self.remote_address(),
+            self.config.path
+        );
+
+        let ftp_stream =
+            NativeTlsFtpStream::connect_timeout(self.socket_address()?, self.timeout())
+                .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+
+        let tls_connector = TlsConnector::builder()
+            .danger_accept_invalid_certs(self.config.no_check_certificate)
+            .build()
+            .map_err(|error| format!("Failed to build FTP TLS connector: {error}"))?;
+
+        let mut ftp_stream = ftp_stream
+            .into_secure(NativeTlsConnector::from(tls_connector), &self.config.host)
+            .map_err(|error| {
+                format!(
+                    "FTP server rejected explicit TLS. Disable `explicit_tls` if this server does not support FTPS explicit mode: {error}"
+                )
+            })?;
+
+        ftp_stream
+            .login(&self.config.username, &self.config.password)
+            .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
+
+        Ok(ftp_stream)
+    }
+
+    fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
+        self.remote_address()
+            .to_socket_addrs()
+            .map_err(|error| format!("Failed to resolve FTP server address: {error}"))?
+            .next()
+            .ok_or_else(|| "Failed to resolve FTP server address".to_string())
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(self.config.timeout)
+    }
+
+    fn ensure_remote_directory<T: TlsStream>(
+        &self,
+        ftp_stream: &mut ImplFtpStream<T>,
+    ) -> Result<(), String> {
         for directory in remote_directories(&self.config.path) {
             if ftp_stream.cwd(&directory).is_ok() {
                 continue;
@@ -114,7 +151,11 @@ impl<'a> Ftp<'a> {
         Ok(())
     }
 
-    fn upload(&self, ftp_stream: &mut FtpStream, remote_path: &str) -> Result<(), String> {
+    fn upload<T: TlsStream>(
+        &self,
+        ftp_stream: &mut ImplFtpStream<T>,
+        remote_path: &str,
+    ) -> Result<(), String> {
         let mut source_file = File::open(self.source_path).map_err(|error| {
             format!(
                 "Failed to open FTP source file {:?}: {error}",
@@ -189,10 +230,8 @@ mod tests {
             path: "/backups".to_string(),
             username: "user".to_string(),
             password: "secret".to_string(),
-            tls: false,
             explicit_tls: false,
             no_check_certificate: false,
-            keep: 0,
         }
     }
 
@@ -268,18 +307,5 @@ mod tests {
         let ftp = Ftp::new(&config, source_path);
 
         assert!(ftp.remote_path().is_err());
-    }
-
-    #[test]
-    fn perform_rejects_tls_for_now() {
-        let mut config = valid_config();
-        config.tls = true;
-        let source_path = Path::new("backup.tar.gz");
-        let ftp = Ftp::new(&config, source_path);
-
-        let result = ftp.perform();
-
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("TLS"));
     }
 }

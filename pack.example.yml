@@ -27,7 +27,5 @@ models:
         path: /backups
         username: pack
         password: secret
-        tls: false
         explicit_tls: false
         no_check_certificate: false
-        keep: 15
