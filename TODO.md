@@ -76,9 +76,11 @@
 
 ## Archive
 
-- [ ] Vérifier que lorsque l'on archive un dossier, si une ecriture/suppression a lieu pendant l'archive, cela ne fait pas planter le processus.
-      Par exemple, si un fichier est supprimé pendant l'archive, `tar` peut échouer avec une erreur "file not found". Il faudrait vérifier que cela n'empêche pas l'archive de se terminer correctement, ou ajouter une option pour ignorer ces erreurs.
-      J'ai deja rencontré ce probleme avec gobackup et c'etait chiant, donc je veux m'assurer que pack gère ça proprement.
+- [x] Vérifier que lorsque l'on archive un dossier, si une écriture/suppression a lieu pendant l'archive, cela ne fait pas planter le processus.
+      Par exemple, si un fichier est supprimé pendant l'archive, `tar` peut échouer avec une erreur "file not found".
+      Fait : pendant l'archive, pack ignore uniquement les erreurs `NotFound` sur les fichiers/dossiers qui disparaissent,
+      loggue un warning, puis continue. Les autres erreurs restent bloquantes.
+      L'include racine manquant au démarrage reste une erreur bloquante.
 
 ## Temp directory
 
