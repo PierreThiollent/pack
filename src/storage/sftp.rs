@@ -1,5 +1,9 @@
 use serde::Deserialize;
+use ssh2::Session;
+use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
+use std::time::Duration;
+use tracing::info;
 
 /// Configuration specific to SFTP storage.
 #[derive(Debug, Deserialize)]
@@ -27,6 +31,12 @@ pub struct SftpConfig {
     pub passphrase: Option<String>,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum SftpAuthMethod {
+    Password,
+    PrivateKey,
+}
+
 pub struct Sftp<'a> {
     config: &'a SftpConfig,
     source_path: &'a Path,
@@ -43,6 +53,9 @@ impl<'a> Sftp<'a> {
     pub fn perform(&self) -> Result<(), String> {
         self.validate_config()?;
 
+        let mut session = self.open_ssh_session()?;
+        self.authenticate(&mut session)?;
+
         Err("SFTP upload is not implemented yet".to_string())
     }
 
@@ -56,6 +69,81 @@ impl<'a> Sftp<'a> {
         }
 
         Ok(())
+    }
+
+    fn open_ssh_session(&self) -> Result<Session, String> {
+        let tcp_stream = self.open_tcp_connection()?;
+        let mut session = Session::new()
+            .map_err(|error| format!("Failed to create SFTP SSH session: {error}"))?;
+        session.set_tcp_stream(tcp_stream);
+        session
+            .handshake()
+            .map_err(|error| format!("Failed to start SFTP SSH session: {error}"))?;
+
+        Ok(session)
+    }
+
+    fn authenticate(&self, session: &mut Session) -> Result<(), String> {
+        match self.auth_method()? {
+            SftpAuthMethod::Password => self.authenticate_with_password(session),
+            SftpAuthMethod::PrivateKey => {
+                Err("SFTP private_key authentication is not implemented yet".to_string())
+            }
+        }
+    }
+
+    fn auth_method(&self) -> Result<SftpAuthMethod, String> {
+        if self.config.password.is_some() {
+            return Ok(SftpAuthMethod::Password);
+        }
+
+        if self.config.private_key.is_some() {
+            return Ok(SftpAuthMethod::PrivateKey);
+        }
+
+        Err("SFTP password or private_key is required".to_string())
+    }
+
+    fn authenticate_with_password(&self, session: &mut Session) -> Result<(), String> {
+        let password =
+            self.config.password.as_ref().ok_or_else(|| {
+                "SFTP password is required for password authentication".to_string()
+            })?;
+
+        session
+            .userauth_password(&self.config.username, password)
+            .map_err(|error| {
+                format!("Failed to authenticate to SFTP server with password: {error}")
+            })?;
+
+        if session.authenticated() {
+            return Ok(());
+        }
+
+        Err("Failed to authenticate to SFTP server with password".to_string())
+    }
+
+    fn open_tcp_connection(&self) -> Result<TcpStream, String> {
+        info!("[SFTP] Connecting to {}", self.remote_address());
+
+        TcpStream::connect_timeout(&self.socket_address()?, self.timeout())
+            .map_err(|error| format!("Failed to connect to SFTP server: {error}"))
+    }
+
+    fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
+        self.remote_address()
+            .to_socket_addrs()
+            .map_err(|error| format!("Failed to resolve SFTP server address: {error}"))?
+            .next()
+            .ok_or_else(|| "Failed to resolve SFTP server address".to_string())
+    }
+
+    fn remote_address(&self) -> String {
+        format!("{}:{}", self.config.host, self.config.port)
+    }
+
+    fn timeout(&self) -> Duration {
+        Duration::from_secs(self.config.timeout)
     }
 
     fn remote_path(&self) -> Result<String, String> {
@@ -90,6 +178,57 @@ mod tests {
             private_key: None,
             passphrase: None,
         }
+    }
+
+    #[test]
+    fn remote_address_uses_host_and_port() {
+        let mut config = valid_config();
+        config.host = "sftp.example.com".to_string();
+        config.port = 2222;
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert_eq!(sftp.remote_address(), "sftp.example.com:2222");
+    }
+
+    #[test]
+    fn timeout_uses_configured_seconds() {
+        let mut config = valid_config();
+        config.timeout = 42;
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert_eq!(sftp.timeout(), Duration::from_secs(42));
+    }
+
+    #[test]
+    fn auth_method_uses_password_when_password_is_configured() {
+        let config = valid_config();
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert_eq!(sftp.auth_method().unwrap(), SftpAuthMethod::Password);
+    }
+
+    #[test]
+    fn auth_method_uses_private_key_when_password_is_missing() {
+        let mut config = valid_config();
+        config.password = None;
+        config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert_eq!(sftp.auth_method().unwrap(), SftpAuthMethod::PrivateKey);
+    }
+
+    #[test]
+    fn auth_method_prefers_password_when_both_are_configured() {
+        let mut config = valid_config();
+        config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert_eq!(sftp.auth_method().unwrap(), SftpAuthMethod::Password);
     }
 
     #[test]
