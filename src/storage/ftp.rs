@@ -1,4 +1,8 @@
 use serde::Deserialize;
+use std::net::ToSocketAddrs;
+use std::time::Duration;
+use suppaftp::FtpStream;
+use tracing::info;
 
 /// Configuration specific to FTP storage.
 #[derive(Debug, Deserialize)]
@@ -42,19 +46,50 @@ impl<'a> Ftp<'a> {
     pub fn perform(&self) -> Result<(), String> {
         self.validate_config()?;
 
-        let _configuration_summary = format!(
-            "{}:{}{} timeout={} tls={} explicit_tls={} no_check_certificate={} keep={}",
-            self.config.host,
-            self.config.port,
+        if self.config.tls || self.config.explicit_tls {
+            return Err(format!(
+                "FTP TLS is not implemented yet (no_check_certificate={})",
+                self.config.no_check_certificate
+            ));
+        }
+
+        info!(
+            "[FTP] Connecting to {} with remote path {} (keep={})",
+            self.remote_address(),
             self.config.path,
-            self.config.timeout,
-            self.config.tls,
-            self.config.explicit_tls,
-            self.config.no_check_certificate,
             self.config.keep
         );
 
-        Err("FTP storage is not implemented yet".to_string())
+        let mut ftp_stream = self.open()?;
+        ftp_stream
+            .quit()
+            .map_err(|error| format!("Failed to close FTP connection: {error}"))?;
+
+        info!("[FTP] Connection succeeded: {}", self.remote_address());
+        Ok(())
+    }
+
+    fn open(&self) -> Result<FtpStream, String> {
+        let timeout = Duration::from_secs(self.config.timeout);
+        let socket_address = self
+            .remote_address()
+            .to_socket_addrs()
+            .map_err(|error| format!("Failed to resolve FTP server address: {error}"))?
+            .next()
+            .ok_or_else(|| "Failed to resolve FTP server address".to_string())?;
+
+        let mut ftp_stream = FtpStream::connect_timeout(socket_address, timeout)
+            .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+
+        ftp_stream
+            .login(&self.config.username, &self.config.password)
+            .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
+
+        Ok(ftp_stream)
+    }
+
+    fn remote_address(&self) -> String {
+        format!("{}:{}", self.config.host, self.config.port)
     }
 
     fn validate_config(&self) -> Result<(), String> {
@@ -115,5 +150,27 @@ mod tests {
         let ftp = Ftp::new(&config);
 
         assert!(ftp.validate_config().is_err());
+    }
+
+    #[test]
+    fn remote_address_uses_host_and_port() {
+        let mut config = valid_config();
+        config.host = "ftp.example.com".to_string();
+        config.port = 2121;
+        let ftp = Ftp::new(&config);
+
+        assert_eq!(ftp.remote_address(), "ftp.example.com:2121");
+    }
+
+    #[test]
+    fn perform_rejects_tls_for_now() {
+        let mut config = valid_config();
+        config.tls = true;
+        let ftp = Ftp::new(&config);
+
+        let result = ftp.perform();
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("TLS"));
     }
 }
