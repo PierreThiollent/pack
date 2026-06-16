@@ -269,7 +269,7 @@ models:
             StorageConfig::Local(local_config) => {
                 assert_eq!(local_config.path, "~/Desktop/pack-backups");
             }
-            StorageConfig::Ftp(_) => panic!("Expected local storage"),
+            StorageConfig::Ftp(_) | StorageConfig::Sftp(_) => panic!("Expected local storage"),
         }
     }
 
@@ -311,7 +311,7 @@ models:
                 assert!(ftp_config.explicit_tls);
                 assert!(ftp_config.no_check_certificate);
             }
-            StorageConfig::Local(_) => panic!("Expected FTP storage"),
+            StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
         }
     }
 
@@ -345,7 +345,84 @@ models:
                 assert!(!ftp_config.explicit_tls);
                 assert!(!ftp_config.no_check_certificate);
             }
-            StorageConfig::Local(_) => panic!("Expected FTP storage"),
+            StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_sftp_storage_with_all_fields() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: sftp
+        host: sftp.example.com
+        port: 2222
+        timeout: 30
+        path: /backup1/foo
+        username: user1
+        password: pass1
+        private_key: ~/.ssh/id_rsa
+        passphrase: key-passphrase
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Sftp(sftp_config) => {
+                assert_eq!(sftp_config.host, "sftp.example.com");
+                assert_eq!(sftp_config.port, 2222);
+                assert_eq!(sftp_config.timeout, 30);
+                assert_eq!(sftp_config.path, "/backup1/foo");
+                assert_eq!(sftp_config.username, "user1");
+                assert_eq!(sftp_config.password.as_deref(), Some("pass1"));
+                assert_eq!(sftp_config.private_key.as_deref(), Some("~/.ssh/id_rsa"));
+                assert_eq!(sftp_config.passphrase.as_deref(), Some("key-passphrase"));
+            }
+            StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_sftp_storage_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: sftp
+        host: sftp.example.com
+        username: user1
+        password: pass1
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Sftp(sftp_config) => {
+                assert_eq!(sftp_config.port, 22);
+                assert_eq!(sftp_config.timeout, 300);
+                assert_eq!(sftp_config.path, "/");
+                assert_eq!(sftp_config.password.as_deref(), Some("pass1"));
+                assert!(sftp_config.private_key.is_none());
+                assert!(sftp_config.passphrase.is_none());
+            }
+            StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
         }
     }
 

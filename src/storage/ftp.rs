@@ -1,4 +1,4 @@
-use crate::storage::remote_directories;
+use crate::storage::{remote_directories, remote_file_path};
 use serde::Deserialize;
 use std::fs::File;
 use std::net::ToSocketAddrs;
@@ -180,18 +180,7 @@ impl<'a> Ftp<'a> {
     }
 
     fn remote_path(&self) -> Result<String, String> {
-        let file_name = self
-            .source_path
-            .file_name()
-            .and_then(|file_name| file_name.to_str())
-            .ok_or_else(|| format!("FTP source path has no file name: {:?}", self.source_path))?;
-
-        let remote_directory = self.config.path.trim_end_matches('/');
-        if remote_directory.is_empty() {
-            Ok(format!("/{file_name}"))
-        } else {
-            Ok(format!("{remote_directory}/{file_name}"))
-        }
+        remote_file_path(&self.config.path, self.source_path, "FTP")
     }
 
     fn validate_config(&self) -> Result<(), String> {
@@ -266,7 +255,7 @@ mod tests {
     }
 
     #[test]
-    fn remote_path_uses_configured_directory() {
+    fn remote_path_uses_shared_remote_file_path_helper() {
         let config = valid_config();
         let source_path = Path::new("/tmp/my_app-20260616-120000.tar.gz");
         let ftp = Ftp::new(&config, source_path);
@@ -275,37 +264,5 @@ mod tests {
             ftp.remote_path().unwrap(),
             "/backups/my_app-20260616-120000.tar.gz"
         );
-    }
-
-    #[test]
-    fn remote_path_uses_root_directory() {
-        let mut config = valid_config();
-        config.path = "/".to_string();
-        let source_path = Path::new("/tmp/my_app-20260616-120000.tar.gz");
-        let ftp = Ftp::new(&config, source_path);
-
-        assert_eq!(ftp.remote_path().unwrap(), "/my_app-20260616-120000.tar.gz");
-    }
-
-    #[test]
-    fn remote_path_trims_trailing_slash() {
-        let mut config = valid_config();
-        config.path = "/backups/".to_string();
-        let source_path = Path::new("/tmp/my_app-20260616-120000.tar.gz");
-        let ftp = Ftp::new(&config, source_path);
-
-        assert_eq!(
-            ftp.remote_path().unwrap(),
-            "/backups/my_app-20260616-120000.tar.gz"
-        );
-    }
-
-    #[test]
-    fn remote_path_rejects_source_without_file_name() {
-        let config = valid_config();
-        let source_path = Path::new("/");
-        let ftp = Ftp::new(&config, source_path);
-
-        assert!(ftp.remote_path().is_err());
     }
 }

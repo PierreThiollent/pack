@@ -1,8 +1,10 @@
 pub mod ftp;
 pub mod local;
+pub mod sftp;
 
 use crate::storage::ftp::FtpConfig;
 use crate::storage::local::LocalConfig;
+use crate::storage::sftp::SftpConfig;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -15,6 +17,9 @@ pub enum StorageConfig {
 
     #[serde(rename = "ftp")]
     Ftp(FtpConfig),
+
+    #[serde(rename = "sftp")]
+    Sftp(SftpConfig),
 }
 
 /// Store a backup artifact based on the configuration.
@@ -30,6 +35,10 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
             let ftp = ftp::Ftp::new(ftp_config, source_path);
             ftp.perform()
         }
+        StorageConfig::Sftp(sftp_config) => {
+            let sftp = sftp::Sftp::new(sftp_config, source_path);
+            sftp.perform()
+        }
     }
 }
 
@@ -44,6 +53,24 @@ pub(crate) fn remote_directories(path: &str) -> Vec<String> {
     }
 
     directories
+}
+
+pub(crate) fn remote_file_path(
+    remote_directory: &str,
+    source_path: &Path,
+    storage_name: &str,
+) -> Result<String, String> {
+    let file_name = source_path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .ok_or_else(|| format!("{storage_name} source path has no file name: {source_path:?}"))?;
+
+    let remote_directory = remote_directory.trim_end_matches('/');
+    if remote_directory.is_empty() {
+        Ok(format!("/{file_name}"))
+    } else {
+        Ok(format!("{remote_directory}/{file_name}"))
+    }
 }
 
 #[cfg(test)]
@@ -75,6 +102,43 @@ mod tests {
             remote_directories("//backups//pack/"),
             vec!["/backups", "/backups/pack"]
         );
+    }
+
+    #[test]
+    fn remote_file_path_uses_configured_directory() {
+        let source_path = Path::new("/tmp/my_app-20260616-120000.tar.gz");
+
+        assert_eq!(
+            remote_file_path("/backups", source_path, "FTP").unwrap(),
+            "/backups/my_app-20260616-120000.tar.gz"
+        );
+    }
+
+    #[test]
+    fn remote_file_path_uses_root_directory() {
+        let source_path = Path::new("/tmp/my_app-20260616-120000.tar.gz");
+
+        assert_eq!(
+            remote_file_path("/", source_path, "FTP").unwrap(),
+            "/my_app-20260616-120000.tar.gz"
+        );
+    }
+
+    #[test]
+    fn remote_file_path_trims_trailing_slash() {
+        let source_path = Path::new("/tmp/my_app-20260616-120000.tar.gz");
+
+        assert_eq!(
+            remote_file_path("/backups/", source_path, "FTP").unwrap(),
+            "/backups/my_app-20260616-120000.tar.gz"
+        );
+    }
+
+    #[test]
+    fn remote_file_path_rejects_source_without_file_name() {
+        let source_path = Path::new("/");
+
+        assert!(remote_file_path("/backups", source_path, "FTP").is_err());
     }
 
     #[test]
