@@ -2,7 +2,7 @@ use crate::paths;
 use serde::Deserialize;
 use std::fs::File;
 use std::path::{Component, Path, PathBuf};
-use tracing::info;
+use tracing::{info, warn};
 
 const ARCHIVE_FILE_NAME: &str = "archive.tar";
 const ARCHIVE_ROOT_DIRECTORY: &str = "archive";
@@ -86,12 +86,38 @@ fn append_path(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(
 }
 
 fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
-    for entry in std::fs::read_dir(source_path)
-        .map_err(|error| format!("Failed to read archive directory {source_path:?}: {error}"))?
-    {
-        let entry = entry.map_err(|error| {
-            format!("Failed to read archive directory entry in {source_path:?}: {error}")
-        })?;
+    let entries = match std::fs::read_dir(source_path) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            warn!(
+                "[Archive] Skipping vanished directory during archive: {}",
+                source_path.display()
+            );
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(format!(
+                "Failed to read archive directory {source_path:?}: {error}"
+            ));
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                warn!(
+                    "[Archive] Skipping vanished directory entry during archive in: {}",
+                    source_path.display()
+                );
+                continue;
+            }
+            Err(error) => {
+                return Err(format!(
+                    "Failed to read archive directory entry in {source_path:?}: {error}"
+                ));
+            }
+        };
         append_path(builder, &entry.path())?;
     }
 
@@ -100,15 +126,19 @@ fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Res
 
 fn append_file(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
     let archive_entry_path = archive_entry_path(source_path);
-    builder
-        .append_path_with_name(source_path, &archive_entry_path)
-        .map_err(|error| {
-            format!(
-                "Failed to add archive include {source_path:?} as {archive_entry_path:?}: {error}"
-            )
-        })?;
-
-    Ok(())
+    match builder.append_path_with_name(source_path, &archive_entry_path) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            warn!(
+                "[Archive] Skipping vanished file during archive: {}",
+                source_path.display()
+            );
+            Ok(())
+        }
+        Err(error) => Err(format!(
+            "Failed to add archive include {source_path:?} as {archive_entry_path:?}: {error}"
+        )),
+    }
 }
 
 fn archive_entry_path(source_path: &Path) -> PathBuf {
@@ -238,6 +268,36 @@ mod tests {
                 .iter()
                 .any(|path| path.ends_with("nested/config.yml"))
         );
+    }
+
+    #[test]
+    fn append_file_skips_file_that_vanished_during_archive() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let dump_directory = tempfile::tempdir().unwrap();
+        let archive_file = File::create(dump_directory.path().join(ARCHIVE_FILE_NAME)).unwrap();
+        let mut builder = tar::Builder::new(archive_file);
+        let source_file = source_directory.path().join("cache.tmp");
+        std::fs::write(&source_file, "temporary cache").unwrap();
+        std::fs::remove_file(&source_file).unwrap();
+
+        let result = append_file(&mut builder, &source_file);
+
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn append_directory_skips_directory_that_vanished_during_archive() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let dump_directory = tempfile::tempdir().unwrap();
+        let archive_file = File::create(dump_directory.path().join(ARCHIVE_FILE_NAME)).unwrap();
+        let mut builder = tar::Builder::new(archive_file);
+        let vanished_directory = source_directory.path().join("cache");
+        std::fs::create_dir(&vanished_directory).unwrap();
+        std::fs::remove_dir(&vanished_directory).unwrap();
+
+        let result = append_directory(&mut builder, &vanished_directory);
+
+        assert!(result.is_ok());
     }
 
     #[test]
