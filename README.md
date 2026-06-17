@@ -20,10 +20,26 @@ It is designed to be small, explicit, and easy to run from cron or any existing 
 
 ## Installation
 
-Build from source:
+Install `pack` with the install script:
 
 ```bash
-git clone https://github.com/your-account/pack
+curl -fsSL https://raw.githubusercontent.com/PierreThiollent/pack/main/install.sh | sh
+```
+
+Install a specific version:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/PierreThiollent/pack/main/install.sh | sh -s v0.1.0
+```
+
+The script downloads the matching binary from GitHub Releases and installs it to `/usr/local/bin/pack`.
+
+### Build from source
+
+If you prefer to build from source:
+
+```bash
+git clone https://github.com/PierreThiollent/pack
 cd pack
 cargo build --release
 cp target/release/pack /usr/local/bin/
@@ -36,13 +52,7 @@ Requirements:
 
 ## Quick start
 
-Install `pack` with the install script:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/your-account/pack/main/install.sh | sh
-```
-
-Then create a config file:
+Create a config file:
 
 ```bash
 mkdir -p ~/.pack
