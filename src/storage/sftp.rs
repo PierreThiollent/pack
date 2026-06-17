@@ -1,3 +1,4 @@
+use crate::paths::expand_tilde;
 use crate::storage::remote_directories;
 use serde::Deserialize;
 use ssh2::{Session, Sftp as Ssh2Sftp};
@@ -8,6 +9,7 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 use tracing::info;
 
+// Keep SFTP writes large enough to avoid many small libssh2 write calls.
 const SFTP_UPLOAD_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 /// Configuration specific to SFTP storage.
@@ -78,6 +80,15 @@ impl<'a> Sftp<'a> {
             return Err("SFTP password or private_key is required".to_string());
         }
 
+        if self
+            .config
+            .private_key
+            .as_deref()
+            .is_some_and(|private_key| private_key.trim().is_empty())
+        {
+            return Err("SFTP private_key cannot be empty".to_string());
+        }
+
         if self.config.passphrase.is_some() && self.config.private_key.is_none() {
             return Err("SFTP passphrase requires private_key authentication".to_string());
         }
@@ -101,9 +112,7 @@ impl<'a> Sftp<'a> {
     fn authenticate(&self, session: &mut Session) -> Result<(), String> {
         match self.auth_method()? {
             SftpAuthMethod::Password => self.authenticate_with_password(session),
-            SftpAuthMethod::PrivateKey => {
-                Err("SFTP private_key authentication is not implemented yet".to_string())
-            }
+            SftpAuthMethod::PrivateKey => self.authenticate_with_private_key(session),
         }
     }
 
@@ -137,6 +146,40 @@ impl<'a> Sftp<'a> {
         }
 
         Err("Failed to authenticate to SFTP server with password".to_string())
+    }
+
+    fn authenticate_with_private_key(&self, session: &mut Session) -> Result<(), String> {
+        let private_key_path = self.private_key_path()?;
+        if !private_key_path.is_file() {
+            return Err(format!(
+                "SFTP private_key file does not exist or is not a file: {}",
+                private_key_path.display()
+            ));
+        }
+
+        session
+            .userauth_pubkey_file(
+                &self.config.username,
+                None,
+                &private_key_path,
+                self.config.passphrase.as_deref(),
+            )
+            .map_err(|error| {
+                format!(
+                    "Failed to authenticate to SFTP server with private_key {}: {error}",
+                    private_key_path.display()
+                )
+            })?;
+
+        if session.authenticated() {
+            info!("[SFTP] Authenticated with private_key");
+            return Ok(());
+        }
+
+        Err(format!(
+            "Failed to authenticate to SFTP server with private_key {}",
+            private_key_path.display()
+        ))
     }
 
     fn open_sftp_subsystem(&self, session: &Session) -> Result<Ssh2Sftp, String> {
@@ -219,6 +262,14 @@ impl<'a> Sftp<'a> {
 
     fn remote_path(&self) -> Result<String, String> {
         crate::storage::remote_file_path(&self.config.path, self.source_path, "SFTP")
+    }
+
+    fn private_key_path(&self) -> Result<std::path::PathBuf, String> {
+        let private_key = self.config.private_key.as_deref().ok_or_else(|| {
+            "SFTP private_key is required for private_key authentication".to_string()
+        })?;
+
+        Ok(std::path::PathBuf::from(expand_tilde(private_key)))
     }
 }
 
@@ -381,6 +432,56 @@ mod tests {
         let sftp = Sftp::new(&config, source_path);
 
         assert!(sftp.validate_config().is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_empty_private_key() {
+        let mut config = valid_config();
+        config.password = None;
+        config.private_key = Some("  ".to_string());
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert!(sftp.validate_config().is_err());
+    }
+
+    #[test]
+    fn validate_config_rejects_passphrase_without_private_key() {
+        let mut config = valid_config();
+        config.passphrase = Some("secret".to_string());
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert!(sftp.validate_config().is_err());
+    }
+
+    #[test]
+    fn private_key_path_expands_tilde() {
+        let mut config = valid_config();
+        config.password = None;
+        config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+        let home = std::env::var("HOME").unwrap();
+
+        assert_eq!(
+            sftp.private_key_path().unwrap(),
+            std::path::PathBuf::from(format!("{home}/.ssh/id_rsa"))
+        );
+    }
+
+    #[test]
+    fn private_key_path_keeps_non_tilde_path() {
+        let mut config = valid_config();
+        config.password = None;
+        config.private_key = Some("/tmp/id_rsa".to_string());
+        let source_path = Path::new("backup.tar.gz");
+        let sftp = Sftp::new(&config, source_path);
+
+        assert_eq!(
+            sftp.private_key_path().unwrap(),
+            std::path::PathBuf::from("/tmp/id_rsa")
+        );
     }
 
     #[test]
