@@ -52,6 +52,7 @@ impl<'a> Local<'a> {
         Ok(())
     }
 
+    /// Build the final destination path by joining configured root and source name.
     fn destination_path(&self) -> Result<PathBuf, String> {
         let root_directory = PathBuf::from(paths::expand_tilde(&self.config.path));
         let source_name = self.source_path.file_name().ok_or_else(|| {
@@ -65,6 +66,7 @@ impl<'a> Local<'a> {
     }
 }
 
+/// Copy one file, creating its parent destination directory first.
 fn copy_file(source_path: &Path, destination_path: &Path) -> Result<(), String> {
     if let Some(parent_directory) = destination_path.parent() {
         std::fs::create_dir_all(parent_directory).map_err(|error| {
@@ -81,6 +83,7 @@ fn copy_file(source_path: &Path, destination_path: &Path) -> Result<(), String> 
     Ok(())
 }
 
+/// Recursively copy a directory and all of its children.
 fn copy_directory(source_path: &Path, destination_path: &Path) -> Result<(), String> {
     std::fs::create_dir_all(destination_path).map_err(|error| {
         format!("Failed to create local storage directory {destination_path:?}: {error}")

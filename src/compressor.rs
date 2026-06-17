@@ -43,14 +43,17 @@ pub fn run(
     }
 }
 
+/// Format the artifact timestamp so filenames are readable and sortable.
 fn timestamp_label(now: DateTime<Local>) -> String {
     now.format("%Y%m%d-%H%M%S").to_string()
 }
 
+/// Build the compressed artifact filename from model name, timestamp and extension.
 fn artifact_file_name(model_name: &str, timestamp: &str, extension: &str) -> String {
     format!("{model_name}-{timestamp}{extension}")
 }
 
+/// Build the artifact path next to the model dump directory.
 fn artifact_path(
     dump_directory: &Path,
     model_name: &str,
@@ -65,6 +68,7 @@ fn artifact_path(
     Ok(parent_directory.join(file_name))
 }
 
+/// Create a `.tar.gz` artifact containing the model dump directory.
 fn create_tgz(dump_directory: &Path, model_name: &str, artifact_path: &Path) -> Result<(), String> {
     let artifact_file = File::create(artifact_path).map_err(|error| {
         format!("Failed to create compressed artifact {artifact_path:?}: {error}")

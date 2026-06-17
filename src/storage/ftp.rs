@@ -33,12 +33,14 @@ pub struct FtpConfig {
     pub no_check_certificate: bool,
 }
 
+/// FTP storage handler for one artifact upload.
 pub struct Ftp<'a> {
     config: &'a FtpConfig,
     source_path: &'a Path,
 }
 
 impl<'a> Ftp<'a> {
+    /// Create a new FTP storage handler.
     pub fn new(config: &'a FtpConfig, source_path: &'a Path) -> Self {
         Self {
             config,
@@ -46,6 +48,7 @@ impl<'a> Ftp<'a> {
         }
     }
 
+    /// Connect, authenticate, create remote directories and upload the artifact.
     pub fn perform(&self) -> Result<(), String> {
         self.validate_config()?;
 
@@ -58,6 +61,7 @@ impl<'a> Ftp<'a> {
         }
     }
 
+    /// Run the common post-connection flow for plain FTP and explicit TLS FTP.
     fn perform_with_stream<T: TlsStream>(
         &self,
         ftp_stream: &mut ImplFtpStream<T>,
@@ -73,6 +77,7 @@ impl<'a> Ftp<'a> {
         Ok(())
     }
 
+    /// Open a plain FTP connection and login with username/password.
     fn open_plain(&self) -> Result<FtpStream, String> {
         info!(
             "[FTP] Connecting to {} with remote path {}",
@@ -90,6 +95,7 @@ impl<'a> Ftp<'a> {
         Ok(ftp_stream)
     }
 
+    /// Open an explicit FTPS connection by upgrading the FTP socket to TLS before login.
     fn open_explicit_tls(&self) -> Result<NativeTlsFtpStream, String> {
         info!(
             "[FTP] Connecting to {} with explicit TLS and remote path {}",
@@ -121,6 +127,7 @@ impl<'a> Ftp<'a> {
         Ok(ftp_stream)
     }
 
+    /// Resolve the configured `host:port` into a socket address.
     fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
         self.remote_address()
             .to_socket_addrs()
@@ -129,10 +136,12 @@ impl<'a> Ftp<'a> {
             .ok_or_else(|| "Failed to resolve FTP server address".to_string())
     }
 
+    /// Convert the configured timeout from seconds to a `Duration`.
     fn timeout(&self) -> Duration {
         Duration::from_secs(self.config.timeout)
     }
 
+    /// Create the configured remote directory and its parents when missing.
     fn ensure_remote_directory<T: TlsStream>(
         &self,
         ftp_stream: &mut ImplFtpStream<T>,
@@ -151,6 +160,7 @@ impl<'a> Ftp<'a> {
         Ok(())
     }
 
+    /// Upload the local artifact to the final remote path in binary mode.
     fn upload<T: TlsStream>(
         &self,
         ftp_stream: &mut ImplFtpStream<T>,
@@ -175,14 +185,17 @@ impl<'a> Ftp<'a> {
         Ok(())
     }
 
+    /// Format the configured remote endpoint as `host:port`.
     fn remote_address(&self) -> String {
         format!("{}:{}", self.config.host, self.config.port)
     }
 
+    /// Build the final remote path from configured directory and artifact name.
     fn remote_path(&self) -> Result<String, String> {
         remote_file_path(&self.config.path, self.source_path, "FTP")
     }
 
+    /// Validate FTP settings before opening any network connection.
     fn validate_config(&self) -> Result<(), String> {
         if self.config.host.trim().is_empty()
             || self.config.username.trim().is_empty()

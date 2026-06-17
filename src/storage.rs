@@ -42,6 +42,9 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
     }
 }
 
+/// Return each parent directory that must exist for a remote directory path.
+///
+/// Absolute paths stay absolute (`/backups/app`), while relative paths stay relative (`backups/app`).
 pub(crate) fn remote_directories(path: &str) -> Vec<String> {
     let mut directories = Vec::new();
     let mut current = String::new();
@@ -63,6 +66,7 @@ pub(crate) fn remote_directories(path: &str) -> Vec<String> {
     directories
 }
 
+/// Build the final remote file path from a remote directory and a local artifact path.
 pub(crate) fn remote_file_path(
     remote_directory: &str,
     source_path: &Path,
