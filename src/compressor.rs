@@ -1,8 +1,7 @@
-use chrono::{DateTime, Local, TimeZone};
+use chrono::{Local, NaiveDateTime};
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde::Deserialize;
-use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -25,7 +24,8 @@ pub fn run(
 ) -> Result<PathBuf, String> {
     match config {
         Some(CompressorConfig::Tgz) => {
-            let artifact_path = artifact_path(dump_directory, model_name, Local::now(), ".tar.gz")?;
+            let timestamp = timestamp_label(Local::now().naive_local());
+            let artifact_path = artifact_path(dump_directory, model_name, &timestamp, ".tar.gz")?;
             info!(
                 "[Compressor: tgz] Creating compressed artifact: {}",
                 artifact_path.display()
@@ -45,10 +45,7 @@ pub fn run(
 }
 
 /// Format the artifact timestamp so filenames are readable and sortable.
-fn timestamp_label<Tz: TimeZone>(now: DateTime<Tz>) -> String
-where
-    Tz::Offset: Display,
-{
+fn timestamp_label(now: NaiveDateTime) -> String {
     now.format("%Y%m%d-%H%M%S").to_string()
 }
 
@@ -58,19 +55,16 @@ fn artifact_file_name(model_name: &str, timestamp: &str, extension: &str) -> Str
 }
 
 /// Build the artifact path next to the model dump directory.
-fn artifact_path<Tz: TimeZone>(
+fn artifact_path(
     dump_directory: &Path,
     model_name: &str,
-    now: DateTime<Tz>,
+    timestamp: &str,
     extension: &str,
-) -> Result<PathBuf, String>
-where
-    Tz::Offset: Display,
-{
+) -> Result<PathBuf, String> {
     let parent_directory = dump_directory.parent().ok_or_else(|| {
         format!("Failed to resolve artifact parent directory for {dump_directory:?}")
     })?;
-    let file_name = artifact_file_name(model_name, &timestamp_label(now), extension);
+    let file_name = artifact_file_name(model_name, timestamp, extension);
 
     Ok(parent_directory.join(file_name))
 }
@@ -115,9 +109,7 @@ mod tests {
     #[test]
     fn artifact_path_uses_run_directory_as_parent() {
         let dump_directory = Path::new("/tmp/pack-run/mon_site");
-        let now = DateTime::parse_from_rfc3339("2026-06-14T22:35:10+02:00").unwrap();
-
-        let path = artifact_path(dump_directory, "mon_site", now, ".tar.gz").unwrap();
+        let path = artifact_path(dump_directory, "mon_site", "20260614-223510", ".tar.gz").unwrap();
 
         assert_eq!(
             path,
@@ -127,7 +119,8 @@ mod tests {
 
     #[test]
     fn timestamp_label_is_sortable_and_readable() {
-        let now = DateTime::parse_from_rfc3339("2026-06-14T22:35:10+02:00").unwrap();
+        let now =
+            NaiveDateTime::parse_from_str("2026-06-14T22:35:10", "%Y-%m-%dT%H:%M:%S").unwrap();
 
         let label = timestamp_label(now);
 
