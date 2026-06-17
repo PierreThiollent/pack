@@ -120,6 +120,55 @@
       - `args` pour passer des options supplémentaires à `mysqldump`
         Exemple : `--single-transaction --quick`
 
+## SFTP
+
+- [x] Investiguer et améliorer les performances d'upload SFTP
+      Test manuel OVH du 2026-06-17 : artifact `.tar.gz` d'environ 89 MiB.
+      Avant optimisation : SFTP upload environ 2 min 45 s, alors que FTP et un client FTP/SFTP externe
+      étaient beaucoup plus rapides sur le même serveur.
+
+      Cause probable : `std::io::copy(...)` utilisait un buffer trop petit pour `ssh2::File` / libssh2,
+      provoquant beaucoup de petits writes SFTP coûteux.
+
+      Fait : remplacement par une copie manuelle avec buffer SFTP de 4 MiB, `write_all(...)`, `flush()`
+      explicite et log de durée/débit. `TcpStream::set_nodelay(true)` est aussi activé.
+
+      Mesures manuelles :
+      - buffer 256 KiB : 89.03 MiB en 7.94 s, environ 11.22 MiB/s ;
+      - buffer 1 MiB : 89.03 MiB en 2.74 s, environ 32.46 MiB/s ;
+      - buffer 4 MiB : 89.03 MiB en 1.82 s, environ 48.97 MiB/s ;
+      - buffer 8 MiB : 89.03 MiB en 1.70 s, environ 52.22 MiB/s.
+
+      Décision : garder 4 MiB par défaut. Le gain de 8 MiB existe mais reste faible par rapport au coût
+      mémoire et au côté plus agressif du tuning.
+
+- [ ] Ajouter plus tard un upload atomique FTP/SFTP avec fichier temporaire `.part`
+      À réserver pour une v0.2, v0.3 ou plus tard selon les priorités.
+      Principe : uploader d'abord vers `backup.tar.gz.part`, puis renommer vers `backup.tar.gz`
+      uniquement si l'upload a réussi. Avantage : éviter de laisser un fichier incomplet sous le nom
+      final si l'upload est interrompu.
+
+      À appliquer de façon cohérente au moins à FTP et SFTP, pas seulement à SFTP. Points à prévoir :
+      rename distant, cleanup du `.part` en cas d'erreur, et comportement si le fichier final existe déjà.
+
+- [ ] Vérifier la taille distante après upload SFTP
+      Après l'upload, faire un `stat(...)` distant et comparer la taille distante avec la taille locale.
+      Avantage : détecter un upload incomplet ou corrompu. Inconvénient : requête réseau supplémentaire.
+
+- [ ] Ajouter une progression d'upload SFTP
+      Ajouter plus tard des logs de progression ou une progress bar pour les gros artifacts.
+      Le log final de débit existe déjà, mais il n'indique rien pendant un upload long.
+
+- [ ] Implémenter l'authentification SFTP par clé privée
+      Le parsing existe déjà (`private_key`, `passphrase`), mais l'auth réelle n'est pas encore branchée.
+      À faire : expansion de `~`, auth sans passphrase, auth avec passphrase, erreurs claires si le fichier
+      de clé est introuvable ou refusé.
+
+- [ ] Documenter les chemins SFTP relatifs vs absolus
+      Sur certains hébergements mutualisés, `path: /pack/backups` peut être interprété comme un chemin
+      absolu système en SFTP, alors que FTP expose souvent une racine virtuelle. Documenter les exemples
+      recommandés : `path: pack/backups` ou `path: /home/user/pack/backups` selon le serveur.
+
 ## Config
 
 - [ ] Supporter les variables d’environnement dans le YAML
