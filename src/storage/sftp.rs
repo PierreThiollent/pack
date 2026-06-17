@@ -1,9 +1,14 @@
+use crate::storage::remote_directories;
 use serde::Deserialize;
 use ssh2::{Session, Sftp as Ssh2Sftp};
+use std::fs::File;
+use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tracing::info;
+
+const SFTP_UPLOAD_BUFFER_SIZE: usize = 4 * 1024 * 1024;
 
 /// Configuration specific to SFTP storage.
 #[derive(Debug, Deserialize)]
@@ -56,9 +61,12 @@ impl<'a> Sftp<'a> {
         let mut session = self.connect_ssh()?;
         self.authenticate(&mut session)?;
         let sftp_session = self.open_sftp_subsystem(&session)?;
-        drop(sftp_session);
+        self.ensure_remote_directory(&sftp_session)?;
+        let remote_path = self.remote_path()?;
+        self.upload(&sftp_session, &remote_path)?;
 
-        Err("SFTP upload is not implemented yet".to_string())
+        info!("[SFTP] Store succeeded: {remote_path}");
+        Ok(())
     }
 
     fn validate_config(&self) -> Result<(), String> {
@@ -68,6 +76,10 @@ impl<'a> Sftp<'a> {
 
         if self.config.password.is_none() && self.config.private_key.is_none() {
             return Err("SFTP password or private_key is required".to_string());
+        }
+
+        if self.config.passphrase.is_some() && self.config.private_key.is_none() {
+            return Err("SFTP passphrase requires private_key authentication".to_string());
         }
 
         Ok(())
@@ -136,11 +148,57 @@ impl<'a> Sftp<'a> {
         Ok(sftp_session)
     }
 
+    fn ensure_remote_directory(&self, sftp_session: &Ssh2Sftp) -> Result<(), String> {
+        for directory in remote_directories(&self.config.path) {
+            let directory_path = Path::new(&directory);
+            if sftp_session.stat(directory_path).is_ok() {
+                continue;
+            }
+
+            info!("[SFTP] Creating remote directory: {directory}");
+            sftp_session
+                .mkdir(directory_path, 0o755)
+                .map_err(|error| format!("Failed to create SFTP directory {directory}: {error}"))?;
+        }
+
+        Ok(())
+    }
+
+    fn upload(&self, sftp_session: &Ssh2Sftp, remote_path: &str) -> Result<(), String> {
+        let mut source_file = File::open(self.source_path).map_err(|error| {
+            format!(
+                "Failed to open SFTP source file {:?}: {error}",
+                self.source_path
+            )
+        })?;
+        let source_size = source_file.metadata().map(|metadata| metadata.len()).ok();
+
+        let mut remote_file = sftp_session
+            .create(Path::new(remote_path))
+            .map_err(|error| format!("Failed to create SFTP remote file {remote_path}: {error}"))?;
+
+        info!("[SFTP] Uploading backup: {remote_path}");
+        let started_at = Instant::now();
+        let bytes_uploaded = copy_with_buffer(&mut source_file, &mut remote_file)
+            .map_err(|error| format!("Failed to upload SFTP file to {remote_path}: {error}"))?;
+        remote_file
+            .flush()
+            .map_err(|error| format!("Failed to flush SFTP remote file {remote_path}: {error}"))?;
+
+        log_upload_duration(bytes_uploaded, source_size, started_at.elapsed());
+
+        Ok(())
+    }
+
     fn open_tcp_connection(&self) -> Result<TcpStream, String> {
         info!("[SFTP] Connecting to {}", self.remote_address());
 
-        TcpStream::connect_timeout(&self.socket_address()?, self.timeout())
-            .map_err(|error| format!("Failed to connect to SFTP server: {error}"))
+        let tcp_stream = TcpStream::connect_timeout(&self.socket_address()?, self.timeout())
+            .map_err(|error| format!("Failed to connect to SFTP server: {error}"))?;
+        tcp_stream
+            .set_nodelay(true)
+            .map_err(|error| format!("Failed to configure SFTP TCP connection: {error}"))?;
+        Ok(tcp_stream)
     }
 
     fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
@@ -161,6 +219,46 @@ impl<'a> Sftp<'a> {
 
     fn remote_path(&self) -> Result<String, String> {
         crate::storage::remote_file_path(&self.config.path, self.source_path, "SFTP")
+    }
+}
+
+fn copy_with_buffer<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<u64> {
+    let mut buffer = vec![0; SFTP_UPLOAD_BUFFER_SIZE];
+    let mut bytes_copied = 0;
+
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            return Ok(bytes_copied);
+        }
+
+        writer.write_all(&buffer[..bytes_read])?;
+        bytes_copied += bytes_read as u64;
+    }
+}
+
+fn log_upload_duration(bytes_uploaded: u64, source_size: Option<u64>, duration: Duration) {
+    let seconds = duration.as_secs_f64();
+    let mib_uploaded = bytes_uploaded as f64 / 1024.0 / 1024.0;
+
+    if seconds > 0.0 {
+        info!(
+            "[SFTP] Uploaded {:.2} MiB in {:.2}s ({:.2} MiB/s)",
+            mib_uploaded,
+            seconds,
+            mib_uploaded / seconds
+        );
+    } else {
+        info!("[SFTP] Uploaded {:.2} MiB", mib_uploaded);
+    }
+
+    if let Some(expected_size) = source_size
+        && expected_size != bytes_uploaded
+    {
+        info!(
+            "[SFTP] Local file size changed during upload: expected {} bytes, uploaded {} bytes",
+            expected_size, bytes_uploaded
+        );
     }
 }
 
@@ -295,5 +393,29 @@ mod tests {
             sftp.remote_path().unwrap(),
             "/backups/my_app-20260616-120000.tar.gz"
         );
+    }
+
+    #[test]
+    fn copy_with_buffer_copies_all_bytes() {
+        let input = b"hello sftp upload";
+        let mut reader = &input[..];
+        let mut writer = Vec::new();
+
+        let bytes_copied = copy_with_buffer(&mut reader, &mut writer).unwrap();
+
+        assert_eq!(bytes_copied, input.len() as u64);
+        assert_eq!(writer, input);
+    }
+
+    #[test]
+    fn copy_with_buffer_handles_empty_reader() {
+        let input = b"";
+        let mut reader = &input[..];
+        let mut writer = Vec::new();
+
+        let bytes_copied = copy_with_buffer(&mut reader, &mut writer).unwrap();
+
+        assert_eq!(bytes_copied, 0);
+        assert!(writer.is_empty());
     }
 }

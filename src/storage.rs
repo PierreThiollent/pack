@@ -45,9 +45,17 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
 pub(crate) fn remote_directories(path: &str) -> Vec<String> {
     let mut directories = Vec::new();
     let mut current = String::new();
+    let is_absolute = path.starts_with('/');
 
     for segment in path.split('/').filter(|segment| !segment.is_empty()) {
-        current.push('/');
+        if current.is_empty() {
+            if is_absolute {
+                current.push('/');
+            }
+        } else {
+            current.push('/');
+        }
+
         current.push_str(segment);
         directories.push(current.clone());
     }
@@ -101,6 +109,14 @@ mod tests {
         assert_eq!(
             remote_directories("//backups//pack/"),
             vec!["/backups", "/backups/pack"]
+        );
+    }
+
+    #[test]
+    fn remote_directories_preserves_relative_paths() {
+        assert_eq!(
+            remote_directories("pack/backups"),
+            vec!["pack", "pack/backups"]
         );
     }
 
