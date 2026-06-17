@@ -5,7 +5,7 @@
 <h1 align="center">pack</h1>
 
 <p align="center">
-  Back up databases and files to local or cloud storage from a single CLI.
+  Simple application backups from a single CLI.
 </p>
 
 <p align="center">
@@ -14,80 +14,13 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
 
-pack is a backup tool designed for application servers. It exports databases, packs files,
-compresses the result, and stores the final archive outside the server.
+`pack` exports databases, collects files, compresses the result, and stores the final archive in one or more destinations.
 
-The goal is simple: configure it once, run it from the command line or on a schedule, and keep
-reliable backups without adding a heavy runtime dependency to your system.
-
-The project is still early and is being built step by step in Rust.
-
-## Features
-
-Current features:
-
-- YAML-based configuration.
-- Multiple backup models in one config file.
-- On-demand backups with `pack perform`.
-- MySQL dumps through the native `mysqldump` client.
-- Configurable temporary work directory (`workdir`) with one unique directory per run and automatic cleanup.
-- Clear error messages for missing config files, invalid YAML, and failed dumps.
-- Unit and integration tests for the CLI and configuration parser.
-
-Planned features:
-
-- Back up files and directories into tar archives.
-- Compress backups with `tgz`, `tbz2`, or `txz`.
-- Upload backups to local and remote storage backends.
-- Split large backup files into smaller parts.
-- Encrypt backup archives with `age`.
-- Rotate old backups with a retention policy.
-- Run as a daemon with built-in scheduling.
-- Send success and failure notifications.
-- Expose a small web UI and REST API.
-
-### Databases
-
-- MySQL
-- PostgreSQL
-- Redis
-- MongoDB
-- SQLite
-- MariaDB
-- Microsoft SQL Server
-- InfluxDB
-- etcd
-- Firebird
-
-Only MySQL is implemented for now.
-
-### Storages
-
-- Local filesystem
-- FTP
-- SFTP
-- SCP
-- Amazon S3 / MinIO
-- Google Cloud Storage
-- Azure Blob Storage
-- Backblaze B2
-- WebDAV
-
-Storage uploads are planned for the next milestones.
-
-### Notifications
-
-Planned notification backends include:
-
-- Webhook
-- Slack
-- Discord
-- Mail / SMTP
-- Telegram
+It is designed to be small, explicit, and easy to run from cron or any existing scheduler.
 
 ## Installation
 
-For now, pack is built from source:
+Build from source:
 
 ```bash
 git clone https://github.com/your-account/pack
@@ -96,24 +29,27 @@ cargo build --release
 cp target/release/pack /usr/local/bin/
 ```
 
-### Requirements
+Requirements:
 
-- [Rust](https://rustup.rs/) with the 2024 edition.
-- Database client tools installed on the machine, for example `mysqldump` for MySQL.
+- Rust 2024 edition.
+- Database client tools installed on the machine, for example `mysqldump` for MySQL backups.
 
-## Configuration
+## Quick start
 
-pack looks for its configuration file in:
+Install `pack` with the install script:
 
-- the path passed with `-c` / `--config`;
-- `~/.pack/pack.yml` by default.
+```bash
+curl -fsSL https://raw.githubusercontent.com/your-account/pack/main/install.sh | sh
+```
 
-The optional top-level `workdir` setting controls where temporary dump files are written. It
-accepts regular paths and leading tilde paths such as `~/Desktop`. Each `perform` creates its own
-unique run directory inside it. This is not the final backup destination: the run directory is
-cleaned up after each run until storage backends are implemented.
+Then create a config file:
 
-Minimal example:
+```bash
+mkdir -p ~/.pack
+$EDITOR ~/.pack/pack.yml
+```
+
+Example:
 
 ```yml
 workdir: /tmp
@@ -126,141 +62,214 @@ models:
         host: localhost
         port: 3306
         database: myapp_prod
-        username: root
-        password: s3cr3t
-```
-
-A model is a backup unit. It usually maps to one application and can contain multiple databases.
-
-```yml
-models:
-  app:
-    databases:
-      primary:
-        type: mysql
-        host: localhost
-        port: 3306
-        database: app_production
-        username: root
-        password: password
-
-      analytics:
-        type: mysql
-        host: 10.0.0.5
-        database: analytics
         username: backup
+        password: secret
+
+    archive:
+      includes:
+        - /var/www/my_site/uploads
+        - /var/www/my_site/.env
+
+    compress_with:
+      type: tgz
+
+    storages:
+      local:
+        type: local
+        path: ~/backups/pack
 ```
 
-The configuration format will later include archives, compression, storages, scripts, schedules,
-retention, encryption, and notifications.
-
-## Usage
-
-Run a backup with the default config path:
+Run the backup:
 
 ```bash
 pack perform
 ```
 
-Run a backup with an explicit config file:
+Or use an explicit config path:
 
 ```bash
 pack perform -c /path/to/pack.yml
 ```
 
-Show help or version:
+## Configuration
 
-```bash
-pack --help
-pack --version
+`pack` reads its configuration from:
+
+- the path passed with `-c` / `--config`;
+- `~/.pack/pack.yml` by default.
+
+A `model` is one backup unit. It usually maps to one application.
+
+Model names must only contain letters, digits, `_`, or `-`.
+
+### Temporary work directory
+
+`workdir` controls where temporary files are written. If it is not set, the system temporary directory is used.
+
+Each run creates a unique directory:
+
+```text
+{workdir_or_system_temp_dir}/pack-{timestamp}-{random}/
 ```
+
+The directory is removed at the end of the run, even when the backup fails.
+
+### MySQL
+
+```yml
+databases:
+  mysql:
+    type: mysql
+    host: localhost
+    port: 3306
+    database: myapp_prod
+    username: backup
+    password: secret
+```
+
+`database` is required. `host` defaults to `localhost`, `port` defaults to `3306`, and `username` defaults to `root`.
+
+### Archive includes
+
+```yml
+archive:
+  includes:
+    - /var/www/my_site/uploads
+    - /var/www/my_site/.env
+```
+
+Included files and directories are added to an intermediate tar archive before compression.
+
+### Compression
+
+```yml
+compress_with:
+  type: tgz
+```
+
+This produces a `.tar.gz` artifact named with the model and timestamp, for example:
+
+```text
+my_site-20260617-134625.tar.gz
+```
+
+## Storages
+
+### Local
+
+```yml
+storages:
+  local:
+    type: local
+    path: ~/backups/pack
+```
+
+The final `.tar.gz` artifact is copied to the configured directory.
+
+### FTP
+
+```yml
+storages:
+  ftp:
+    type: ftp
+    host: ftp.example.com
+    port: 21
+    timeout: 300
+    path: /backups/my_site
+    username: pack
+    password: secret
+    explicit_tls: false
+    no_check_certificate: false
+```
+
+Required fields: `host`, `username`, `password`.
+
+Defaults:
+
+- `port`: `21`
+- `timeout`: `300` seconds
+- `path`: `/` — often the FTP user's virtual root directory, not the server filesystem root
+- `explicit_tls`: `false`
+- `no_check_certificate`: `false`
+
+Notes:
+
+- Remote directories are created automatically when needed.
+- Transfers use binary mode.
+- `explicit_tls: true` enables explicit FTPS when the server supports it.
+
+### SFTP
+
+Password authentication:
+
+```yml
+storages:
+  sftp:
+    type: sftp
+    host: sftp.example.com
+    port: 22
+    timeout: 300
+    path: backups/my_site
+    username: pack
+    password: secret
+```
+
+Private key authentication:
+
+```yml
+storages:
+  sftp:
+    type: sftp
+    host: sftp.example.com
+    port: 22
+    timeout: 300
+    path: backups/my_site
+    username: pack
+    private_key: ~/.ssh/id_rsa
+    passphrase: optional-passphrase
+```
+
+Required fields: `host`, `username`, and at least one authentication method: `password` or `private_key`.
+
+Defaults:
+
+- `port`: `22`
+- `timeout`: `300` seconds
+- `path`: `/` — the server root from the SFTP session point of view; on shared hosting this may not be writable
+
+`passphrase` is only valid with `private_key` authentication.
+
+For SFTP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
+
+## Logs
 
 Example output:
 
 ```text
-$ pack perform -c pack.yml
-Run directory: /tmp/pack-1780000000-aBcDeF
-Model: my_site
-  Database: mysql
-  ✔ mysql done
+2026-06-17 13:46:25 +02:00  INFO [Run] Starting backup run
+2026-06-17 13:46:25 +02:00  INFO [Model: my_site] Running model
+2026-06-17 13:46:25 +02:00  INFO [MySQL: mysql] Dumping database
+2026-06-17 13:46:26 +02:00  INFO [Archive] Archive created: /tmp/pack-.../my_site/archive.tar
+2026-06-17 13:46:27 +02:00  INFO [Compressor] Compressed backup: /tmp/pack-.../my_site-20260617-134625.tar.gz
+2026-06-17 13:46:28 +02:00  INFO [SFTP] Store succeeded: backups/my_site/my_site-20260617-134625.tar.gz
+2026-06-17 13:46:28 +02:00  INFO [Run] Backup run completed
 ```
 
-On error:
+Set `RUST_LOG` to control log verbosity:
 
-```text
-$ pack perform -c pack.yml
-Run directory: /tmp/pack-1780000000-aBcDeF
-Model: my_site
-  Database: mysql
-Error: mysqldump failed:
-mysqldump: Got error: 2002: Can't connect to local MySQL server...
+```bash
+RUST_LOG=warn pack perform
 ```
-
-Temporary files are written under `{workdir_or_system_temp_dir}/pack-{timestamp}-{random}/{model}/`
-and cleaned up even when the dump fails.
-
-## Schedule
-
-Scheduled backups are not implemented yet. The planned daemon mode will support both cron-like
-schedules and simple interval-based schedules.
-
-Example target configuration:
-
-```yml
-models:
-  app:
-    schedule:
-      cron: "5 4 * * sun"
-    databases:
-      mysql:
-        type: mysql
-        host: localhost
-        database: app_production
-        username: root
-        password: password
-```
-
-## Target pipeline
-
-Each model is intended to run through this pipeline:
-
-```text
-Dump databases
-  -> collect files
-  -> create archive
-  -> compress
-  -> encrypt
-  -> split
-  -> upload
-  -> rotate old backups
-  -> clean up
-```
-
-Today, only the MySQL dump and cleanup steps are implemented.
-
-## Roadmap
-
-| Version | Goal |
-|---|---|
-| v0.1 | CLI, YAML configuration, MySQL dumps, model pipeline |
-| v0.2 | Archive, compression, Local / FTP / SFTP storage |
-| v0.3 | Encryption, split, retention |
-| v0.4 | Daemon, scheduling, signal handling |
-| v0.5 | Notifications |
-| v0.6 | Web UI and REST API |
-| v1.0 | Remaining databases, more storage backends, complete documentation |
-
-See [PLAN.md](PLAN.md) for the full plan.
 
 ## Development
 
 ```bash
-cargo test
-cargo build
 cargo fmt
+cargo test
+cargo clippy --all-targets -- -D warnings
 ```
 
-The project's Git hooks check Rust formatting before commits.
+The project uses Git hooks to run formatting checks before commits.
 
 ## License
 

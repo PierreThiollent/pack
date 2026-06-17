@@ -67,51 +67,55 @@ pack/
 Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, capable de sauvegarder une base de données locale vers un stockage local ou FTP avec compression.
 
 ### CLI
-- [ ] Binaire `pack` avec sous-commandes : `perform`, `help`
-- [ ] Chargement de la config depuis `~/.pack/pack.yml` ou chemin explicite `-c`
-- [ ] Parsing YAML de la config (models → databases → storages → compress_with)
+- [x] Binaire `pack` avec sous-commandes : `perform`, `help`
+- [x] Chargement de la config depuis `~/.pack/pack.yml` ou chemin explicite `-c`
+- [x] Parsing YAML de la config (models → databases → storages → compress_with)
 
 ### Modèle / Pipeline
-- [ ] Exécution d'un pipeline complet pour un model :
+- [x] Exécution d'un pipeline complet pour un model :
   - Dump database → Archive (tar) → Compress (gz) → Upload → Cleanup temp
-- [ ] Cycle de vie : workdir temporaire → suppression après upload
-- [ ] Logging console avec niveau (info, warn, error)
+- [x] Cycle de vie : workdir temporaire unique par run → suppression après upload
+- [x] Logging console avec niveau (info, warn, error)
 
 ### Database
-- [ ] **MySQL** : `mysqldump` en subprocess → dump.sql (✅ **choisi**)
+- [x] **MySQL** : `mysqldump` en subprocess → dump SQL (✅ **choisi**)
 
 ### Archive
-- [ ] Inclure les dossiers/fichiers listés dans `archive.includes` → tar
-- [ ] Combinaison : dump SQL + archive → tar final
+- [x] Inclure les dossiers/fichiers listés dans `archive.includes` → tar
+- [x] Combinaison : dump SQL + archive → artifact final compressé
 
 Note : `archive.excludes` est repoussé après le MVP pour garder v0.1.0 simple.
 
 ### Compression
-- [ ] `compress_with.type = "tgz"` → tar.gz
-- [ ] `tbz2` et `txz` (bonus)
+- [x] `compress_with.type = "tgz"` → tar.gz
+- [ ] `tbz2` et `txz` (bonus, repoussé après v0.1.0)
 
 ### Storage
-- [ ] **Local** : copie du fichier vers `path` avec horodatage (✅ **choisi**)
-- [ ] **FTP** : upload vers serveur FTP (via `suppaftp`) (✅ **choisi**)
-- [ ] **SFTP** : upload via SSH (crate `ssh2`) (✅ **choisi**)
+- [x] **Local** : copie du fichier vers `path` avec horodatage (✅ **choisi**)
+- [x] **FTP** : upload vers serveur FTP (via `suppaftp`) (✅ **choisi**)
+- [x] **SFTP** : upload via SSH (crate `ssh2`) (✅ **choisi**)
 
-### Schedule
-- [ ] `before_script` et `after_script` exécutés en shell
-- [ ] Pas encore de daemon : `pack perform` exécute une seule fois
+### Schedule / scripts
+- [ ] `before_script` et `after_script` exécutés en shell (repoussé en v0.2.0)
+- [x] Pas encore de daemon : `pack perform` exécute une seule fois
 
 ### Tests
-- [ ] Tests unitaires pour le parsing de config
-- [ ] Tests d'intégration pour le pipeline (mock des subprocess)
+- [x] Tests unitaires pour le parsing de config
+- [x] Tests d'intégration pour le pipeline local via le CLI
+- [ ] Tests d'intégration avec mock des subprocess (optionnel / à réévaluer après v0.1.0)
 
 ### Livrable
-- [ ] README.md avec exemple de config et usage
-- [ ] Binaire unique fonctionnel sur macOS/Linux
+- [x] README.md avec exemple de config et usage
+- [x] Binaire unique fonctionnel sur macOS/Linux
 
 ---
 
-## v0.2.0 — Storages avancés
+## v0.2.0 — Scripts + storages avancés
 
+- [ ] `before_script` et `after_script` exécutés en shell
 - [ ] Ajouter `archive.excludes` pour exclure certains fichiers/dossiers des archives
+- [ ] Upload atomique FTP/SFTP avec fichier `.part` puis rename
+- [ ] Vérification optionnelle de taille distante après upload
 - [ ] **SCP** : upload via SSH (crate `ssh2`)
 - [ ] **WebDAV** : upload via HTTP WebDAV
 - [ ] **S3** : upload vers AWS S3/MinIO (crate `aws-sdk-s3`)
@@ -187,9 +191,9 @@ Chaque notifier implémente un trait `Notifier` avec `notify_success()` et `noti
 ## Roadmap visuelle
 
 ```
-MVP (v0.1.0)    →  CLI + MySQL + Local/FTP/SFTP + TGZ compression
+MVP (v0.1.0)    →  CLI + MySQL + Archive + TGZ + Local/FTP/SFTP
     ↓
-v0.2.0         →  S3 + SCP + WebDAV + Multi-storage
+v0.2.0         →  Scripts before/after + Excludes + S3/SCP/WebDAV + Multi-storage
     ↓
 v0.3.0         →  TBZ2/TXZ + Encrypt (age) + Split + Cycler
     ↓
