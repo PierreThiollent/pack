@@ -1,5 +1,5 @@
 use serde::Deserialize;
-use ssh2::Session;
+use ssh2::{Session, Sftp as Ssh2Sftp};
 use std::net::{TcpStream, ToSocketAddrs};
 use std::path::Path;
 use std::time::Duration;
@@ -53,8 +53,10 @@ impl<'a> Sftp<'a> {
     pub fn perform(&self) -> Result<(), String> {
         self.validate_config()?;
 
-        let mut session = self.open_ssh_session()?;
+        let mut session = self.connect_ssh()?;
         self.authenticate(&mut session)?;
+        let sftp_session = self.open_sftp_subsystem(&session)?;
+        drop(sftp_session);
 
         Err("SFTP upload is not implemented yet".to_string())
     }
@@ -71,7 +73,7 @@ impl<'a> Sftp<'a> {
         Ok(())
     }
 
-    fn open_ssh_session(&self) -> Result<Session, String> {
+    fn connect_ssh(&self) -> Result<Session, String> {
         let tcp_stream = self.open_tcp_connection()?;
         let mut session = Session::new()
             .map_err(|error| format!("Failed to create SFTP SSH session: {error}"))?;
@@ -80,6 +82,7 @@ impl<'a> Sftp<'a> {
             .handshake()
             .map_err(|error| format!("Failed to start SFTP SSH session: {error}"))?;
 
+        info!("[SFTP] SSH session established");
         Ok(session)
     }
 
@@ -117,10 +120,20 @@ impl<'a> Sftp<'a> {
             })?;
 
         if session.authenticated() {
+            info!("[SFTP] Authenticated with password");
             return Ok(());
         }
 
         Err("Failed to authenticate to SFTP server with password".to_string())
+    }
+
+    fn open_sftp_subsystem(&self, session: &Session) -> Result<Ssh2Sftp, String> {
+        let sftp_session = session
+            .sftp()
+            .map_err(|error| format!("Failed to open SFTP subsystem: {error}"))?;
+
+        info!("[SFTP] SFTP session opened");
+        Ok(sftp_session)
     }
 
     fn open_tcp_connection(&self) -> Result<TcpStream, String> {
