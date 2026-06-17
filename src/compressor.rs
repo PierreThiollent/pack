@@ -1,7 +1,8 @@
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, TimeZone};
 use flate2::Compression;
 use flate2::write::GzEncoder;
 use serde::Deserialize;
+use std::fmt::Display;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -44,7 +45,10 @@ pub fn run(
 }
 
 /// Format the artifact timestamp so filenames are readable and sortable.
-fn timestamp_label(now: DateTime<Local>) -> String {
+fn timestamp_label<Tz: TimeZone>(now: DateTime<Tz>) -> String
+where
+    Tz::Offset: Display,
+{
     now.format("%Y%m%d-%H%M%S").to_string()
 }
 
@@ -54,12 +58,15 @@ fn artifact_file_name(model_name: &str, timestamp: &str, extension: &str) -> Str
 }
 
 /// Build the artifact path next to the model dump directory.
-fn artifact_path(
+fn artifact_path<Tz: TimeZone>(
     dump_directory: &Path,
     model_name: &str,
-    now: DateTime<Local>,
+    now: DateTime<Tz>,
     extension: &str,
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, String>
+where
+    Tz::Offset: Display,
+{
     let parent_directory = dump_directory.parent().ok_or_else(|| {
         format!("Failed to resolve artifact parent directory for {dump_directory:?}")
     })?;
@@ -108,9 +115,7 @@ mod tests {
     #[test]
     fn artifact_path_uses_run_directory_as_parent() {
         let dump_directory = Path::new("/tmp/pack-run/mon_site");
-        let now = DateTime::parse_from_rfc3339("2026-06-14T22:35:10+02:00")
-            .unwrap()
-            .with_timezone(&Local);
+        let now = DateTime::parse_from_rfc3339("2026-06-14T22:35:10+02:00").unwrap();
 
         let path = artifact_path(dump_directory, "mon_site", now, ".tar.gz").unwrap();
 
@@ -122,9 +127,7 @@ mod tests {
 
     #[test]
     fn timestamp_label_is_sortable_and_readable() {
-        let now = DateTime::parse_from_rfc3339("2026-06-14T22:35:10+02:00")
-            .unwrap()
-            .with_timezone(&Local);
+        let now = DateTime::parse_from_rfc3339("2026-06-14T22:35:10+02:00").unwrap();
 
         let label = timestamp_label(now);
 
