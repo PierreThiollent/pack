@@ -239,17 +239,17 @@ fn copy_with_buffer<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Re
 
 fn log_upload_duration(bytes_uploaded: u64, source_size: Option<u64>, duration: Duration) {
     let seconds = duration.as_secs_f64();
-    let mib_uploaded = bytes_uploaded as f64 / 1024.0 / 1024.0;
+    let megabytes_uploaded = bytes_uploaded as f64 / 1_000_000.0;
 
     if seconds > 0.0 {
         info!(
-            "[SFTP] Uploaded {:.2} MiB in {:.2}s ({:.2} MiB/s)",
-            mib_uploaded,
+            "[SFTP] Uploaded {:.2} MB in {:.2}s ({:.2} MB/s)",
+            megabytes_uploaded,
             seconds,
-            mib_uploaded / seconds
+            megabytes_uploaded / seconds
         );
     } else {
-        info!("[SFTP] Uploaded {:.2} MiB", mib_uploaded);
+        info!("[SFTP] Uploaded {:.2} MB", megabytes_uploaded);
     }
 
     if let Some(expected_size) = source_size
