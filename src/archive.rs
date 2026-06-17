@@ -67,6 +67,7 @@ fn create_archive(config: &ArchiveConfig, archive_path: &Path) -> Result<(), Str
     Ok(())
 }
 
+/// Add one configured include to the archive.
 fn append_include(builder: &mut tar::Builder<File>, include: &str) -> Result<(), String> {
     let source_path = PathBuf::from(paths::expand_tilde(include));
 
@@ -77,6 +78,7 @@ fn append_include(builder: &mut tar::Builder<File>, include: &str) -> Result<(),
     append_path(builder, &source_path)
 }
 
+/// Add a file or directory to the archive, dispatching by source path type.
 fn append_path(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
     if source_path.is_dir() {
         append_directory(builder, source_path)
@@ -85,6 +87,7 @@ fn append_path(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(
     }
 }
 
+/// Recursively add a directory's entries to the archive.
 fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
     let entries = match std::fs::read_dir(source_path) {
         Ok(entries) => entries,
@@ -124,6 +127,7 @@ fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Res
     Ok(())
 }
 
+/// Add a single file to the archive under its normalized archive entry path.
 fn append_file(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
     let archive_entry_path = archive_entry_path(source_path);
     match builder.append_path_with_name(source_path, &archive_entry_path) {
@@ -141,6 +145,7 @@ fn append_file(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(
     }
 }
 
+/// Build the path used inside `archive.tar` for a source path.
 fn archive_entry_path(source_path: &Path) -> PathBuf {
     let mut entry_path = PathBuf::from(ARCHIVE_ROOT_DIRECTORY);
 
