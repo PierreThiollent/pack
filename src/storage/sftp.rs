@@ -44,12 +44,14 @@ enum SftpAuthMethod {
     PrivateKey,
 }
 
+/// SFTP storage handler for one artifact upload.
 pub struct Sftp<'a> {
     config: &'a SftpConfig,
     source_path: &'a Path,
 }
 
 impl<'a> Sftp<'a> {
+    /// Create a new SFTP storage handler.
     pub fn new(config: &'a SftpConfig, source_path: &'a Path) -> Self {
         Self {
             config,
@@ -57,6 +59,7 @@ impl<'a> Sftp<'a> {
         }
     }
 
+    /// Connect, authenticate, create remote directories and upload the artifact.
     pub fn perform(&self) -> Result<(), String> {
         self.validate_config()?;
 
@@ -71,6 +74,7 @@ impl<'a> Sftp<'a> {
         Ok(())
     }
 
+    /// Validate SFTP settings before opening any network connection.
     fn validate_config(&self) -> Result<(), String> {
         if self.config.host.trim().is_empty() || self.config.username.trim().is_empty() {
             return Err("SFTP host or username cannot be empty".to_string());
@@ -96,6 +100,7 @@ impl<'a> Sftp<'a> {
         Ok(())
     }
 
+    /// Open the TCP connection and perform the SSH handshake.
     fn connect_ssh(&self) -> Result<Session, String> {
         let tcp_stream = self.open_tcp_connection()?;
         let mut session = Session::new()
@@ -109,6 +114,7 @@ impl<'a> Sftp<'a> {
         Ok(session)
     }
 
+    /// Authenticate the SSH session with the configured SFTP auth method.
     fn authenticate(&self, session: &mut Session) -> Result<(), String> {
         match self.auth_method()? {
             SftpAuthMethod::Password => self.authenticate_with_password(session),
@@ -116,6 +122,7 @@ impl<'a> Sftp<'a> {
         }
     }
 
+    /// Choose the authentication method from the parsed config.
     fn auth_method(&self) -> Result<SftpAuthMethod, String> {
         if self.config.password.is_some() {
             return Ok(SftpAuthMethod::Password);
@@ -128,6 +135,7 @@ impl<'a> Sftp<'a> {
         Err("SFTP password or private_key is required".to_string())
     }
 
+    /// Authenticate with the configured password.
     fn authenticate_with_password(&self, session: &mut Session) -> Result<(), String> {
         let password =
             self.config.password.as_ref().ok_or_else(|| {
@@ -148,6 +156,7 @@ impl<'a> Sftp<'a> {
         Err("Failed to authenticate to SFTP server with password".to_string())
     }
 
+    /// Authenticate with the configured private key and optional passphrase.
     fn authenticate_with_private_key(&self, session: &mut Session) -> Result<(), String> {
         let private_key_path = self.private_key_path()?;
         if !private_key_path.is_file() {
@@ -182,6 +191,7 @@ impl<'a> Sftp<'a> {
         ))
     }
 
+    /// Open the SFTP subsystem over the authenticated SSH session.
     fn open_sftp_subsystem(&self, session: &Session) -> Result<Ssh2Sftp, String> {
         let sftp_session = session
             .sftp()
@@ -191,6 +201,7 @@ impl<'a> Sftp<'a> {
         Ok(sftp_session)
     }
 
+    /// Create the configured remote directory and its parents when missing.
     fn ensure_remote_directory(&self, sftp_session: &Ssh2Sftp) -> Result<(), String> {
         for directory in remote_directories(&self.config.path) {
             let directory_path = Path::new(&directory);
@@ -207,6 +218,7 @@ impl<'a> Sftp<'a> {
         Ok(())
     }
 
+    /// Upload the local artifact to the final remote path.
     fn upload(&self, sftp_session: &Ssh2Sftp, remote_path: &str) -> Result<(), String> {
         let mut source_file = File::open(self.source_path).map_err(|error| {
             format!(
@@ -233,6 +245,7 @@ impl<'a> Sftp<'a> {
         Ok(())
     }
 
+    /// Open the raw TCP connection used by the SSH session.
     fn open_tcp_connection(&self) -> Result<TcpStream, String> {
         info!("[SFTP] Connecting to {}", self.remote_address());
 
@@ -244,6 +257,7 @@ impl<'a> Sftp<'a> {
         Ok(tcp_stream)
     }
 
+    /// Resolve the configured `host:port` into a socket address.
     fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
         self.remote_address()
             .to_socket_addrs()
@@ -252,18 +266,22 @@ impl<'a> Sftp<'a> {
             .ok_or_else(|| "Failed to resolve SFTP server address".to_string())
     }
 
+    /// Format the configured remote endpoint as `host:port`.
     fn remote_address(&self) -> String {
         format!("{}:{}", self.config.host, self.config.port)
     }
 
+    /// Convert the configured timeout from seconds to a `Duration`.
     fn timeout(&self) -> Duration {
         Duration::from_secs(self.config.timeout)
     }
 
+    /// Build the final remote path from configured directory and artifact name.
     fn remote_path(&self) -> Result<String, String> {
         crate::storage::remote_file_path(&self.config.path, self.source_path, "SFTP")
     }
 
+    /// Return the configured private key path with a leading `~` expanded.
     fn private_key_path(&self) -> Result<std::path::PathBuf, String> {
         let private_key = self.config.private_key.as_deref().ok_or_else(|| {
             "SFTP private_key is required for private_key authentication".to_string()
@@ -273,6 +291,7 @@ impl<'a> Sftp<'a> {
     }
 }
 
+/// Copy bytes with a large buffer to reduce costly libssh2 SFTP write calls.
 fn copy_with_buffer<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<u64> {
     let mut buffer = vec![0; SFTP_UPLOAD_BUFFER_SIZE];
     let mut bytes_copied = 0;
@@ -288,6 +307,7 @@ fn copy_with_buffer<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Re
     }
 }
 
+/// Log uploaded size and throughput using decimal MB, like most FTP clients.
 fn log_upload_duration(bytes_uploaded: u64, source_size: Option<u64>, duration: Duration) {
     let seconds = duration.as_secs_f64();
     let megabytes_uploaded = bytes_uploaded as f64 / 1_000_000.0;

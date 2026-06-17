@@ -41,10 +41,12 @@ pub fn run(config: Option<&ArchiveConfig>, dump_directory: &Path) -> Result<(), 
     Ok(())
 }
 
+/// Return the path of the intermediate `archive.tar` inside the dump directory.
 fn archive_path(dump_directory: &Path) -> PathBuf {
     dump_directory.join(ARCHIVE_FILE_NAME)
 }
 
+/// Create `archive.tar` and append every configured include to it.
 fn create_archive(config: &ArchiveConfig, archive_path: &Path) -> Result<(), String> {
     if let Some(parent_directory) = archive_path.parent() {
         std::fs::create_dir_all(parent_directory).map_err(|error| {
