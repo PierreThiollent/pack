@@ -159,10 +159,11 @@
       Ajouter plus tard des logs de progression ou une progress bar pour les gros artifacts.
       Le log final de débit existe déjà, mais il n'indique rien pendant un upload long.
 
-- [ ] Implémenter l'authentification SFTP par clé privée
-      Le parsing existe déjà (`private_key`, `passphrase`), mais l'auth réelle n'est pas encore branchée.
-      À faire : expansion de `~`, auth sans passphrase, auth avec passphrase, erreurs claires si le fichier
-      de clé est introuvable ou refusé.
+- [x] Implémenter l'authentification SFTP par clé privée
+      Le parsing existait déjà (`private_key`, `passphrase`), mais l'auth réelle n'était pas encore branchée.
+      Fait : expansion de `~`, auth avec `ssh2::Session::userauth_pubkey_file`, support de la passphrase,
+      validation des clés vides, erreur claire si le fichier de clé est introuvable ou refusé.
+      Test manuel validé avec une vraie clé privée sur serveur SFTP OVH/Tailscale.
 
 - [ ] Documenter les chemins SFTP relatifs vs absolus
       Sur certains hébergements mutualisés, `path: /pack/backups` peut être interprété comme un chemin
