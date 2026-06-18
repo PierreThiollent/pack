@@ -1,9 +1,9 @@
-use crate::storage::{remote_directories, remote_file_path};
+use crate::storage::{
+    remote_address, remote_directories, remote_file_path, socket_address, timeout_duration,
+};
 use serde::Deserialize;
 use std::fs::File;
-use std::net::ToSocketAddrs;
 use std::path::Path;
-use std::time::Duration;
 use suppaftp::native_tls::TlsConnector;
 use suppaftp::types::FileType;
 use suppaftp::{FtpStream, ImplFtpStream, NativeTlsConnector, NativeTlsFtpStream, TlsStream};
@@ -81,12 +81,15 @@ impl<'a> Ftp<'a> {
     fn open_plain(&self) -> Result<FtpStream, String> {
         info!(
             "[FTP] Connecting to {} with remote path {}",
-            self.remote_address(),
+            remote_address(&self.config.host, self.config.port),
             self.config.path
         );
 
-        let mut ftp_stream = FtpStream::connect_timeout(self.socket_address()?, self.timeout())
-            .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+        let mut ftp_stream = FtpStream::connect_timeout(
+            socket_address(&self.config.host, self.config.port, "FTP")?,
+            timeout_duration(self.config.timeout),
+        )
+        .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
 
         ftp_stream
             .login(&self.config.username, &self.config.password)
@@ -99,13 +102,15 @@ impl<'a> Ftp<'a> {
     fn open_explicit_tls(&self) -> Result<NativeTlsFtpStream, String> {
         info!(
             "[FTP] Connecting to {} with explicit TLS and remote path {}",
-            self.remote_address(),
+            remote_address(&self.config.host, self.config.port),
             self.config.path
         );
 
-        let ftp_stream =
-            NativeTlsFtpStream::connect_timeout(self.socket_address()?, self.timeout())
-                .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+        let ftp_stream = NativeTlsFtpStream::connect_timeout(
+            socket_address(&self.config.host, self.config.port, "FTP")?,
+            timeout_duration(self.config.timeout),
+        )
+        .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
 
         let tls_connector = TlsConnector::builder()
             .danger_accept_invalid_certs(self.config.no_check_certificate)
@@ -125,20 +130,6 @@ impl<'a> Ftp<'a> {
             .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
 
         Ok(ftp_stream)
-    }
-
-    /// Resolve the configured `host:port` into a socket address.
-    fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
-        self.remote_address()
-            .to_socket_addrs()
-            .map_err(|error| format!("Failed to resolve FTP server address: {error}"))?
-            .next()
-            .ok_or_else(|| "Failed to resolve FTP server address".to_string())
-    }
-
-    /// Convert the configured timeout from seconds to a `Duration`.
-    fn timeout(&self) -> Duration {
-        Duration::from_secs(self.config.timeout)
     }
 
     /// Create the configured remote directory and its parents when missing.
@@ -183,11 +174,6 @@ impl<'a> Ftp<'a> {
             .map_err(|error| format!("Failed to upload FTP file to {remote_path}: {error}"))?;
 
         Ok(())
-    }
-
-    /// Format the configured remote endpoint as `host:port`.
-    fn remote_address(&self) -> String {
-        format!("{}:{}", self.config.host, self.config.port)
     }
 
     /// Build the final remote path from configured directory and artifact name.
@@ -264,7 +250,10 @@ mod tests {
         let source_path = Path::new("backup.tar.gz");
         let ftp = Ftp::new(&config, source_path);
 
-        assert_eq!(ftp.remote_address(), "ftp.example.com:2121");
+        assert_eq!(
+            remote_address(&ftp.config.host, ftp.config.port),
+            "ftp.example.com:2121"
+        );
     }
 
     #[test]
