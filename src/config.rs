@@ -4,6 +4,7 @@ use crate::database::DatabaseConfig;
 use crate::paths;
 use crate::storage::StorageConfig;
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use tracing::error;
 
@@ -67,7 +68,15 @@ pub fn load_config(path: &str) -> Config {
         error!("[Config] Failed to read config file {path}: {error}");
         std::process::exit(1);
     });
-    let config: Config = serde_yaml::from_str(&yaml_content).unwrap_or_else(|error| {
+    let expanded_yaml_content =
+        expand_environment_variables(&yaml_content).unwrap_or_else(|error| {
+            error!(
+                "[Config] Failed to expand environment variables in config file {path}: {error}"
+            );
+            std::process::exit(1);
+        });
+
+    let config: Config = serde_yaml::from_str(&expanded_yaml_content).unwrap_or_else(|error| {
         error!("[Config] Failed to parse config file {path}: {error}");
         std::process::exit(1);
     });
@@ -86,6 +95,22 @@ fn validate_config(config: &Config) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Expand `$VAR` and `${VAR}` placeholders before parsing the YAML config.
+/// Missing variables are treated as configuration errors to avoid silently using empty secrets.
+fn expand_environment_variables(yaml_content: &str) -> Result<String, String> {
+    shellexpand::env(yaml_content)
+        .map(Cow::into_owned)
+        .map_err(|error| format!("missing environment variable `{}`", error.var_name))
+}
+
+#[cfg(test)]
+fn expand_environment_variables_with_context(
+    yaml_content: &str,
+    context: impl Fn(&str) -> Option<String>,
+) -> String {
+    shellexpand::env_with_context_no_errors(yaml_content, context).into_owned()
 }
 
 #[cfg(test)]
@@ -148,6 +173,93 @@ models:
                 assert_eq!(cfg.password.as_deref(), Some("secret123"));
             }
         }
+    }
+
+    #[test]
+    fn expand_environment_variables_supports_dollar_syntax() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: mysql
+        database: app
+        password: $MYSQL_PASSWORD
+"#;
+
+        let expanded_yaml = expand_environment_variables_with_context(yaml, |variable_name| {
+            if variable_name == "MYSQL_PASSWORD" {
+                Some("secret123".to_string())
+            } else {
+                None
+            }
+        });
+        let config: Config = serde_yaml::from_str(&expanded_yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::MySQL(mysql_config) => {
+                assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
+            }
+        }
+    }
+
+    #[test]
+    fn expand_environment_variables_supports_braced_syntax() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: mysql
+        database: app
+        password: ${MYSQL_PASSWORD}
+"#;
+
+        let expanded_yaml = expand_environment_variables_with_context(yaml, |variable_name| {
+            if variable_name == "MYSQL_PASSWORD" {
+                Some("secret123".to_string())
+            } else {
+                None
+            }
+        });
+        let config: Config = serde_yaml::from_str(&expanded_yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::MySQL(mysql_config) => {
+                assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
+            }
+        }
+    }
+
+    #[test]
+    fn expand_environment_variables_returns_error_when_variable_is_missing() {
+        let error =
+            expand_environment_variables("password: $PACK_MISSING_TEST_PASSWORD").unwrap_err();
+
+        assert!(error.contains("PACK_MISSING_TEST_PASSWORD"));
+    }
+
+    #[test]
+    fn expand_environment_variables_keeps_regular_content_unchanged() {
+        let yaml = "password: secret123";
+
+        let expanded_yaml = expand_environment_variables_with_context(yaml, |_| None);
+
+        assert_eq!(expanded_yaml, yaml);
     }
 
     #[test]
