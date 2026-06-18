@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release (${{ matrix.asset_name }})
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            expected_arch: x86_64
+            asset_name: pack-linux-amd64.tar.gz
+          - os: macos-14
+            expected_arch: arm64
+            asset_name: pack-darwin-arm64.tar.gz
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Verify runner architecture
+        run: |
+          actual_arch="$(uname -m)"
+          if [ "${actual_arch}" != "${{ matrix.expected_arch }}" ]; then
+            echo "Expected ${{ matrix.expected_arch }}, got ${actual_arch}" >&2
+            exit 1
+          fi
+
+      - name: Build release binary
+        run: cargo build --release --locked
+
+      - name: Package release asset
+        run: tar -czf "${{ matrix.asset_name }}" -C target/release pack
+
+      - name: Upload release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ matrix.asset_name }}
