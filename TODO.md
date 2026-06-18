@@ -172,9 +172,10 @@
 
 ## Config
 
-- [ ] Supporter les variables d’environnement dans le YAML
+- [x] Supporter les variables d’environnement dans le YAML
       Comme GoBackup, permettre `$MYSQL_PASSWORD` ou `${MYSQL_PASSWORD}` dans la config,
       pour éviter de stocker les secrets en clair.
+      Fait : expansion avant parsing YAML via `shellexpand`, avec erreur si une variable est absente.
 
 ## Gestion d’erreurs
 
