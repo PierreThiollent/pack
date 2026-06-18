@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-0.1.0-blue" alt="Version" />
+  <img src="https://img.shields.io/github/v/release/PierreThiollent/pack" alt="Latest release" />
   <img src="https://img.shields.io/badge/rust-2024-orange" alt="Rust 2024" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
