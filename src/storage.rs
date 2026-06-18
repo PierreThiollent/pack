@@ -6,7 +6,9 @@ use crate::storage::ftp::FtpConfig;
 use crate::storage::local::LocalConfig;
 use crate::storage::sftp::SftpConfig;
 use serde::Deserialize;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::Path;
+use std::time::Duration;
 
 /// Configuration for a storage — the `type` field determines which variant is used.
 #[derive(Debug, Deserialize)]
@@ -40,6 +42,29 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
             sftp.perform()
         }
     }
+}
+
+/// Format a remote endpoint as `host:port`.
+pub(crate) fn remote_address(host: &str, port: u16) -> String {
+    format!("{host}:{port}")
+}
+
+/// Resolve a remote `host:port` endpoint into a socket address.
+pub(crate) fn socket_address(
+    host: &str,
+    port: u16,
+    storage_name: &str,
+) -> Result<SocketAddr, String> {
+    remote_address(host, port)
+        .to_socket_addrs()
+        .map_err(|error| format!("Failed to resolve {storage_name} server address: {error}"))?
+        .next()
+        .ok_or_else(|| format!("Failed to resolve {storage_name} server address"))
+}
+
+/// Convert a timeout from seconds to a `Duration`.
+pub(crate) fn timeout_duration(seconds: u64) -> Duration {
+    Duration::from_secs(seconds)
 }
 
 /// Return each parent directory that must exist for a remote directory path.

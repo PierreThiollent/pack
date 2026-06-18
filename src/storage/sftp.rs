@@ -1,10 +1,10 @@
 use crate::paths::expand_tilde;
-use crate::storage::remote_directories;
+use crate::storage::{remote_address, remote_directories, socket_address, timeout_duration};
 use serde::Deserialize;
 use ssh2::{Session, Sftp as Ssh2Sftp};
 use std::fs::File;
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::TcpStream;
 use std::path::Path;
 use std::time::{Duration, Instant};
 use tracing::info;
@@ -247,33 +247,20 @@ impl<'a> Sftp<'a> {
 
     /// Open the raw TCP connection used by the SSH session.
     fn open_tcp_connection(&self) -> Result<TcpStream, String> {
-        info!("[SFTP] Connecting to {}", self.remote_address());
+        info!(
+            "[SFTP] Connecting to {}",
+            remote_address(&self.config.host, self.config.port)
+        );
 
-        let tcp_stream = TcpStream::connect_timeout(&self.socket_address()?, self.timeout())
-            .map_err(|error| format!("Failed to connect to SFTP server: {error}"))?;
+        let tcp_stream = TcpStream::connect_timeout(
+            &socket_address(&self.config.host, self.config.port, "SFTP")?,
+            timeout_duration(self.config.timeout),
+        )
+        .map_err(|error| format!("Failed to connect to SFTP server: {error}"))?;
         tcp_stream
             .set_nodelay(true)
             .map_err(|error| format!("Failed to configure SFTP TCP connection: {error}"))?;
         Ok(tcp_stream)
-    }
-
-    /// Resolve the configured `host:port` into a socket address.
-    fn socket_address(&self) -> Result<std::net::SocketAddr, String> {
-        self.remote_address()
-            .to_socket_addrs()
-            .map_err(|error| format!("Failed to resolve SFTP server address: {error}"))?
-            .next()
-            .ok_or_else(|| "Failed to resolve SFTP server address".to_string())
-    }
-
-    /// Format the configured remote endpoint as `host:port`.
-    fn remote_address(&self) -> String {
-        format!("{}:{}", self.config.host, self.config.port)
-    }
-
-    /// Convert the configured timeout from seconds to a `Duration`.
-    fn timeout(&self) -> Duration {
-        Duration::from_secs(self.config.timeout)
     }
 
     /// Build the final remote path from configured directory and artifact name.
@@ -370,7 +357,10 @@ mod tests {
         let source_path = Path::new("backup.tar.gz");
         let sftp = Sftp::new(&config, source_path);
 
-        assert_eq!(sftp.remote_address(), "sftp.example.com:2222");
+        assert_eq!(
+            remote_address(&sftp.config.host, sftp.config.port),
+            "sftp.example.com:2222"
+        );
     }
 
     #[test]
@@ -380,7 +370,10 @@ mod tests {
         let source_path = Path::new("backup.tar.gz");
         let sftp = Sftp::new(&config, source_path);
 
-        assert_eq!(sftp.timeout(), Duration::from_secs(42));
+        assert_eq!(
+            timeout_duration(sftp.config.timeout),
+            Duration::from_secs(42)
+        );
     }
 
     #[test]
