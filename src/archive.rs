@@ -57,9 +57,10 @@ fn create_archive(config: &ArchiveConfig, archive_path: &Path) -> Result<(), Str
     let archive_file = File::create(archive_path)
         .map_err(|error| format!("Failed to create archive file {archive_path:?}: {error}"))?;
     let mut builder = tar::Builder::new(archive_file);
+    let excludes = expanded_excludes(config);
 
     for include in &config.includes {
-        append_include(&mut builder, include)?;
+        append_include(&mut builder, include, &excludes)?;
     }
 
     builder
@@ -70,27 +71,44 @@ fn create_archive(config: &ArchiveConfig, archive_path: &Path) -> Result<(), Str
 }
 
 /// Add one configured include to the archive.
-fn append_include(builder: &mut tar::Builder<File>, include: &str) -> Result<(), String> {
+fn append_include(
+    builder: &mut tar::Builder<File>,
+    include: &str,
+    excludes: &[PathBuf],
+) -> Result<(), String> {
     let source_path = PathBuf::from(paths::expand_tilde(include));
 
     if !source_path.exists() {
         return Err(format!("Archive include does not exist: {source_path:?}"));
     }
 
-    append_path(builder, &source_path)
+    append_path(builder, &source_path, excludes)
 }
 
 /// Add a file or directory to the archive, dispatching by source path type.
-fn append_path(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
+fn append_path(
+    builder: &mut tar::Builder<File>,
+    source_path: &Path,
+    excludes: &[PathBuf],
+) -> Result<(), String> {
+    if is_excluded(source_path, excludes) {
+        info!("[Archive] Excluding path: {}", source_path.display());
+        return Ok(());
+    }
+
     if source_path.is_dir() {
-        append_directory(builder, source_path)
+        append_directory(builder, source_path, excludes)
     } else {
         append_file(builder, source_path)
     }
 }
 
 /// Recursively add a directory's entries to the archive.
-fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(), String> {
+fn append_directory(
+    builder: &mut tar::Builder<File>,
+    source_path: &Path,
+    excludes: &[PathBuf],
+) -> Result<(), String> {
     let entries = match std::fs::read_dir(source_path) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
@@ -123,10 +141,24 @@ fn append_directory(builder: &mut tar::Builder<File>, source_path: &Path) -> Res
                 ));
             }
         };
-        append_path(builder, &entry.path())?;
+        append_path(builder, &entry.path(), excludes)?;
     }
 
     Ok(())
+}
+
+fn expanded_excludes(config: &ArchiveConfig) -> Vec<PathBuf> {
+    config
+        .excludes
+        .iter()
+        .map(|exclude| PathBuf::from(paths::expand_tilde(exclude)))
+        .collect()
+}
+
+fn is_excluded(source_path: &Path, excludes: &[PathBuf]) -> bool {
+    excludes
+        .iter()
+        .any(|exclude| source_path == exclude || source_path.starts_with(exclude))
 }
 
 /// Add a single file to the archive under its normalized archive entry path.
@@ -278,6 +310,33 @@ mod tests {
     }
 
     #[test]
+    fn run_with_directory_exclude_skips_excluded_directory_files() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let dump_directory = tempfile::tempdir().unwrap();
+        let cache_directory = source_directory.path().join("cache");
+        std::fs::create_dir_all(&cache_directory).unwrap();
+        std::fs::write(source_directory.path().join("config.yml"), "hello archive").unwrap();
+        std::fs::write(cache_directory.join("temporary.txt"), "temporary cache").unwrap();
+        let source_directory_string = source_directory.path().to_string_lossy();
+        let cache_directory_string = cache_directory.to_string_lossy();
+        let config = make_config(
+            vec![&source_directory_string],
+            vec![&cache_directory_string],
+        );
+
+        let result = run(Some(&config), dump_directory.path());
+
+        assert!(result.is_ok());
+        let entry_paths = archive_entry_paths(dump_directory.path());
+        assert!(entry_paths.iter().any(|path| path.ends_with("config.yml")));
+        assert!(
+            !entry_paths
+                .iter()
+                .any(|path| path.ends_with("cache/temporary.txt"))
+        );
+    }
+
+    #[test]
     fn append_file_skips_file_that_vanished_during_archive() {
         let source_directory = tempfile::tempdir().unwrap();
         let dump_directory = tempfile::tempdir().unwrap();
@@ -302,9 +361,33 @@ mod tests {
         std::fs::create_dir(&vanished_directory).unwrap();
         std::fs::remove_dir(&vanished_directory).unwrap();
 
-        let result = append_directory(&mut builder, &vanished_directory);
+        let result = append_directory(&mut builder, &vanished_directory, &[]);
 
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn is_excluded_matches_exact_path() {
+        let excludes = vec![PathBuf::from("/tmp/app/cache")];
+
+        assert!(is_excluded(Path::new("/tmp/app/cache"), &excludes));
+    }
+
+    #[test]
+    fn is_excluded_matches_path_inside_excluded_directory() {
+        let excludes = vec![PathBuf::from("/tmp/app/cache")];
+
+        assert!(is_excluded(Path::new("/tmp/app/cache/file.txt"), &excludes));
+    }
+
+    #[test]
+    fn is_excluded_does_not_match_path_with_similar_prefix() {
+        let excludes = vec![PathBuf::from("/tmp/app/cache")];
+
+        assert!(!is_excluded(
+            Path::new("/tmp/app/cache-old/file.txt"),
+            &excludes
+        ));
     }
 
     #[test]

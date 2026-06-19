@@ -5,22 +5,28 @@
 <h1 align="center">pack</h1>
 
 <p align="center">
-  Simple application backups from a single CLI.
+  Back up your apps. Pack them away.<br />
+  Dump databases, archive files, compress, and store backups from one CLI.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/PierreThiollent/pack" alt="Latest release" />
+  <a href="https://github.com/PierreThiollent/pack/actions?query=workflow%3ACI">
+    <img src="https://github.com/PierreThiollent/pack/actions/workflows/ci.yml/badge.svg" alt="Build & test" />
+  </a>
+  <a href="https://github.com/PierreThiollent/pack/releases">
+    <img src="https://img.shields.io/github/v/release/PierreThiollent/pack" alt="Latest release" />
+  </a>
   <img src="https://img.shields.io/badge/rust-2024-orange" alt="Rust 2024" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
 
-`pack` exports databases, collects files, compresses the result, and stores the final archive in one or more destinations.
+`pack` is a small, explicit backup CLI for application servers.
 
-It is designed to be small, explicit, and easy to run from cron or any existing scheduler.
+It dumps databases, archives files, compresses everything into timestamped artifacts, and ships them to local, FTP, or SFTP storage.
 
 ## Installation
 
-Install `pack` with the install script:
+Install the latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PierreThiollent/pack/main/install.sh | sh
@@ -32,7 +38,7 @@ Install a specific version:
 curl -fsSL https://raw.githubusercontent.com/PierreThiollent/pack/main/install.sh | sh -s v0.1.0
 ```
 
-The script downloads the matching binary from GitHub Releases and installs it to `/usr/local/bin/pack`.
+The script downloads the matching release binary from GitHub Releases and installs it to `/usr/local/bin/pack`.
 
 ### Build from source
 
@@ -79,6 +85,9 @@ models:
       includes:
         - /var/www/my_site/uploads
         - /var/www/my_site/.env
+      excludes:
+        - /var/www/my_site/uploads/cache
+        - /var/www/my_site/uploads/tmp
 
     compress_with:
       type: tgz
@@ -139,16 +148,23 @@ databases:
 
 `database` is required. `host` defaults to `localhost`, `port` defaults to `3306`, and `username` defaults to `root`.
 
-### Archive includes
+### Archive includes and excludes
 
 ```yml
 archive:
   includes:
     - /var/www/my_site/uploads
     - /var/www/my_site/.env
+  excludes:
+    - /var/www/my_site/uploads/cache
+    - /var/www/my_site/uploads/tmp
 ```
 
-Included files and directories are added to an intermediate tar archive before compression.
+Files and directories listed in `includes` are added to an intermediate tar archive before compression.
+
+`excludes` lets you skip files or directories inside the configured includes. Paths support `~` expansion. When an excluded path is a directory, all files and directories below it are skipped too.
+
+An excluded path does not have to exist: if it matches nothing, it is simply ignored.
 
 ### Compression
 
@@ -164,6 +180,8 @@ my_site-20260617-134625.tar.gz
 ```
 
 ## Storages
+
+Storages define where final backup artifacts are copied or uploaded. A model can use one or more storages.
 
 ### Local
 
