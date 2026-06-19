@@ -42,11 +42,38 @@
       Fait : messages taggés inspirés de GoBackup (`[Config]`, `[Run]`, `[Model: ...]`,
       `[MySQL: ...]`, `[Archive]`, `[Storage: ...]`, `[Local]`, `[Cleanup]`).
 
+- [ ] Réduire la redondance des logs storage
+      Aujourd'hui l'orchestrateur loggue `[Storage: sftp] Uploading backup`, puis le backend concret
+      loggue aussi `[SFTP] Uploading backup: remote/path.tar.gz`. C'est clair, mais un peu répétitif.
+      Plus tard, décider si l'orchestrateur doit seulement annoncer le storage (`Running storage`) ou
+      si le backend concret doit porter tous les logs d'upload détaillés.
+
 - [ ] Remplacer plus tard `Result<T, String>` par des erreurs typées avec `thiserror`
       Ce n'est pas nécessaire pour démarrer le logging, mais ce sera utile pour afficher
       des erreurs plus structurées quand compression, FTP/SFTP et réseau seront ajoutés.
 
 ## Compressor
+
+- [ ] Approfondir le choix du timestamp dans les noms d'artifacts
+      Aujourd'hui les artifacts utilisent un timestamp local implicite, par exemple
+      `my_site-20260617-134625.tar.gz`. C'est lisible pour un humain sur la machine qui lance
+      `pack`, mais le fuseau horaire n'est pas inscrit dans le nom.
+
+      Problème rencontré en CI : les tests qui convertissaient un instant `+02:00` vers `Local`
+      échouaient sur GitHub Actions, car les runners sont en UTC. Le fix actuel garde le format
+      local implicite et rend les tests indépendants du timezone de la machine, mais le sujet mérite
+      une vraie décision produit plus tard.
+
+      Points à comparer :
+      - heure locale implicite : `20260617-134625` ;
+      - heure locale avec offset : `20260617-134625+0200` ;
+      - UTC explicite : `20260617-114625Z` ;
+      - format ISO-like sans caractères problématiques pour les fichiers ;
+      - lisibilité humaine vs standard infra ;
+      - tri lexical, machines dans plusieurs fuseaux, DST, restauration et audit.
+
+      Décision v0.1 temporaire : conserver le format actuel local implicite pour ne pas changer
+      l'expérience utilisateur juste avant la release.
 
 - [ ] V2 compressor : utiliser `pigz` automatiquement si disponible, sinon fallback `flate2`
       Pour la première version du compressor, on garde `flate2` : c'est simple, portable,
@@ -169,6 +196,8 @@
       Sur certains hébergements mutualisés, `path: /pack/backups` peut être interprété comme un chemin
       absolu système en SFTP, alors que FTP expose souvent une racine virtuelle. Documenter les exemples
       recommandés : `path: pack/backups` ou `path: /home/user/pack/backups` selon le serveur.
+
+- [ ] Tester manuellement l'upload SFTP par clé privée + passphrase. Tester également avec une clé privée + passphrase incorrecte. Tester egalement avec clé privée inexistante et clé privée refusée par le serveur.
 
 ## Config
 

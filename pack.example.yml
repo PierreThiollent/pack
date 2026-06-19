@@ -13,6 +13,9 @@ models:
     archive:
       includes:
         - ~/Documents/myapp
+      excludes:
+        - ~/Documents/myapp/cache
+        - ~/Documents/myapp/tmp
     compress_with:
       type: tgz
     storages:
