@@ -1,3 +1,4 @@
+use crate::logging::{LogTag, tag};
 use chrono::{Local, NaiveDateTime};
 use flate2::Compression;
 use flate2::write::GzEncoder;
@@ -27,18 +28,23 @@ pub fn run(
             let timestamp = timestamp_label(Local::now().naive_local());
             let artifact_path = artifact_path(dump_directory, model_name, &timestamp, ".tar.gz")?;
             info!(
-                "[Compressor: tgz] Creating compressed artifact: {}",
+                pack_tag = %tag(LogTag::Compressor(Some("tgz"))),
+                "Creating compressed artifact: {}",
                 artifact_path.display()
             );
             create_tgz(dump_directory, model_name, &artifact_path)?;
             info!(
-                "[Compressor: tgz] Compressed artifact created: {}",
+                pack_tag = %tag(LogTag::Compressor(Some("tgz"))),
+                "Compressed artifact created: {}",
                 artifact_path.display()
             );
             Ok(artifact_path)
         }
         None => {
-            info!("[Compressor] No compression configured; using dump directory as artifact");
+            info!(
+                pack_tag = %tag(LogTag::Compressor(None)),
+                "No compression configured; using dump directory as artifact"
+            );
             Ok(dump_directory.to_path_buf())
         }
     }

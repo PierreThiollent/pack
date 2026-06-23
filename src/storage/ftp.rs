@@ -1,3 +1,4 @@
+use crate::logging::{LogTag, tag};
 use crate::storage::{
     remote_address, remote_directories, remote_file_path, socket_address, timeout_duration,
 };
@@ -73,14 +74,15 @@ impl<'a> Ftp<'a> {
             .quit()
             .map_err(|error| format!("Failed to close FTP connection: {error}"))?;
 
-        info!("[FTP] Store succeeded: {remote_path}");
+        info!(pack_tag = %tag(LogTag::Ftp), "Store succeeded: {remote_path}");
         Ok(())
     }
 
     /// Open a plain FTP connection and login with username/password.
     fn open_plain(&self) -> Result<FtpStream, String> {
         info!(
-            "[FTP] Connecting to {} with remote path {}",
+            pack_tag = %tag(LogTag::Ftp),
+            "Connecting to {} with remote path {}",
             remote_address(&self.config.host, self.config.port),
             self.config.path
         );
@@ -101,7 +103,8 @@ impl<'a> Ftp<'a> {
     /// Open an explicit FTPS connection by upgrading the FTP socket to TLS before login.
     fn open_explicit_tls(&self) -> Result<NativeTlsFtpStream, String> {
         info!(
-            "[FTP] Connecting to {} with explicit TLS and remote path {}",
+            pack_tag = %tag(LogTag::Ftp),
+            "Connecting to {} with explicit TLS and remote path {}",
             remote_address(&self.config.host, self.config.port),
             self.config.path
         );
@@ -142,7 +145,10 @@ impl<'a> Ftp<'a> {
                 continue;
             }
 
-            info!("[FTP] Creating remote directory: {directory}");
+            info!(
+                pack_tag = %tag(LogTag::Ftp),
+                "Creating remote directory: {directory}"
+            );
             ftp_stream
                 .mkdir(&directory)
                 .map_err(|error| format!("Failed to create FTP directory {directory}: {error}"))?;
@@ -168,7 +174,7 @@ impl<'a> Ftp<'a> {
             .transfer_type(FileType::Binary)
             .map_err(|error| format!("Failed to set FTP binary transfer mode: {error}"))?;
 
-        info!("[FTP] Uploading backup: {remote_path}");
+        info!(pack_tag = %tag(LogTag::Ftp), "Uploading backup: {remote_path}");
         ftp_stream
             .put_file(remote_path, &mut source_file)
             .map_err(|error| format!("Failed to upload FTP file to {remote_path}: {error}"))?;

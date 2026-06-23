@@ -1,3 +1,4 @@
+use crate::logging::{LogTag, tag};
 use crate::paths;
 use serde::Deserialize;
 use std::fs::File;
@@ -29,14 +30,19 @@ pub fn run(config: Option<&ArchiveConfig>, dump_directory: &Path) -> Result<(), 
 
     let archive_path = archive_path(dump_directory);
     info!(
-        "[Archive] Creating archive: {} include(s), {} exclude(s)",
+        pack_tag = %tag(LogTag::Archive),
+        "Creating archive: {} include(s), {} exclude(s)",
         config.includes.len(),
         config.excludes.len()
     );
 
     create_archive(config, &archive_path)?;
 
-    info!("[Archive] Archive created: {}", archive_path.display());
+    info!(
+        pack_tag = %tag(LogTag::Archive),
+        "Archive created: {}",
+        archive_path.display()
+    );
 
     Ok(())
 }
@@ -92,7 +98,11 @@ fn append_path(
     excludes: &[PathBuf],
 ) -> Result<(), String> {
     if is_excluded(source_path, excludes) {
-        info!("[Archive] Excluding path: {}", source_path.display());
+        info!(
+            pack_tag = %tag(LogTag::Archive),
+            "Excluding path: {}",
+            source_path.display()
+        );
         return Ok(());
     }
 
@@ -113,7 +123,8 @@ fn append_directory(
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             warn!(
-                "[Archive] Skipping vanished directory during archive: {}",
+                pack_tag = %tag(LogTag::Archive),
+                "Skipping vanished directory during archive: {}",
                 source_path.display()
             );
             return Ok(());
@@ -130,7 +141,8 @@ fn append_directory(
             Ok(entry) => entry,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 warn!(
-                    "[Archive] Skipping vanished directory entry during archive in: {}",
+                    pack_tag = %tag(LogTag::Archive),
+                    "Skipping vanished directory entry during archive in: {}",
                     source_path.display()
                 );
                 continue;
@@ -168,7 +180,8 @@ fn append_file(builder: &mut tar::Builder<File>, source_path: &Path) -> Result<(
         Ok(()) => Ok(()),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             warn!(
-                "[Archive] Skipping vanished file during archive: {}",
+                pack_tag = %tag(LogTag::Archive),
+                "Skipping vanished file during archive: {}",
                 source_path.display()
             );
             Ok(())

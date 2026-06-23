@@ -2,6 +2,7 @@ use crate::archive;
 use crate::compressor;
 use crate::config::{Config, Model, validate_model_name};
 use crate::database;
+use crate::logging::{LogTag, tag};
 use crate::paths;
 use crate::storage;
 use std::path::{Path, PathBuf};
@@ -15,20 +16,27 @@ use tracing::{info, warn};
 /// its own dump directory inside it. The run directory is always cleaned up,
 /// even on failure.
 pub fn run_all(config: &Config) -> Result<(), String> {
-    info!("[Run] Starting backup run");
+    info!(pack_tag = %tag(LogTag::Run), "Starting backup run");
 
     let run_directory = create_run_directory(config.workdir.as_deref())?;
-    info!("[Run] Work directory: {}", run_directory.path().display());
+    info!(
+        pack_tag = %tag(LogTag::Run),
+        "Work directory: {}",
+        run_directory.path().display()
+    );
 
     let result = run_models(config, run_directory.path());
 
     let run_directory_path = run_directory.path().to_path_buf();
     if let Err(error) = run_directory.close() {
-        warn!("[Cleanup] Failed to clean up run directory {run_directory_path:?}: {error}");
+        warn!(
+            pack_tag = %tag(LogTag::Cleanup),
+            "Failed to clean up run directory {run_directory_path:?}: {error}"
+        );
     }
 
     if result.is_ok() {
-        info!("[Run] Backup run completed");
+        info!(pack_tag = %tag(LogTag::Run), "Backup run completed");
     }
 
     result
@@ -36,7 +44,7 @@ pub fn run_all(config: &Config) -> Result<(), String> {
 
 fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
     for (name, model) in &config.models {
-        info!("[Model: {name}] Running model");
+        info!(pack_tag = %tag(LogTag::Model(name)), "Running model");
 
         let dump_directory = create_dump_directory(run_directory, name)?;
         run_model_databases(model, &dump_directory)?;
@@ -44,7 +52,7 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
         let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory, name)?;
         run_model_storages(model, &artifact_path)?;
 
-        info!("[Model: {name}] Model completed");
+        info!(pack_tag = %tag(LogTag::Model(name)), "Model completed");
     }
 
     Ok(())
@@ -55,18 +63,29 @@ fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), Strin
     for (database_name, database_config) in &model.databases {
         let database_type = database_config.type_name();
 
-        info!("[{database_type}: {database_name}] Dumping database");
+        let database_tag = LogTag::Database {
+            database_type,
+            database_name,
+        };
+
+        info!(pack_tag = %tag(database_tag), "Dumping database");
         database::run(database_config, dump_directory)?;
-        info!("[{database_type}: {database_name}] Database completed");
+        info!(pack_tag = %tag(database_tag), "Database completed");
     }
     Ok(())
 }
 
 fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
     for (storage_name, storage_config) in &model.storages {
-        info!("[Storage: {storage_name}] Uploading backup");
+        info!(
+            pack_tag = %tag(LogTag::Storage(storage_name)),
+            "Uploading backup"
+        );
         storage::run(storage_config, source_path)?;
-        info!("[Storage: {storage_name}] Storage completed");
+        info!(
+            pack_tag = %tag(LogTag::Storage(storage_name)),
+            "Storage completed"
+        );
     }
     Ok(())
 }

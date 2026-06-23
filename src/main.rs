@@ -8,6 +8,7 @@ mod paths;
 mod storage;
 
 use clap::{CommandFactory, Parser, Subcommand};
+use logging::{LogTag, tag};
 use tracing::{error, info};
 
 /// pack 🎒 — Backup tool written in Rust 🦀
@@ -42,9 +43,15 @@ fn main() {
             };
             let config_path = config::resolve_config_path(cli.config);
             let config = config::load_config(&config_path);
-            info!("[Config] Loaded config from {config_source}: {config_path}");
+            info!(
+                pack_tag = %tag(LogTag::Config),
+                "Loaded config from {config_source}: {config_path}"
+            );
             if let Err(error) = model::run_all(&config) {
-                error!("[Run] Failed to run backup: {error}");
+                error!(
+                    pack_tag = %tag(LogTag::Run),
+                    "Failed to run backup: {error}"
+                );
                 std::process::exit(1);
             }
         }

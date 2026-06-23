@@ -1,3 +1,4 @@
+use crate::logging::{LogTag, tag};
 use crate::paths::expand_tilde;
 use crate::storage::{remote_address, remote_directories, socket_address, timeout_duration};
 use serde::Deserialize;
@@ -70,7 +71,7 @@ impl<'a> Sftp<'a> {
         let remote_path = self.remote_path()?;
         self.upload(&sftp_session, &remote_path)?;
 
-        info!("[SFTP] Store succeeded: {remote_path}");
+        info!(pack_tag = %tag(LogTag::Sftp), "Store succeeded: {remote_path}");
         Ok(())
     }
 
@@ -110,7 +111,7 @@ impl<'a> Sftp<'a> {
             .handshake()
             .map_err(|error| format!("Failed to start SFTP SSH session: {error}"))?;
 
-        info!("[SFTP] SSH session established");
+        info!(pack_tag = %tag(LogTag::Sftp), "SSH session established");
         Ok(session)
     }
 
@@ -149,7 +150,7 @@ impl<'a> Sftp<'a> {
             })?;
 
         if session.authenticated() {
-            info!("[SFTP] Authenticated with password");
+            info!(pack_tag = %tag(LogTag::Sftp), "Authenticated with password");
             return Ok(());
         }
 
@@ -181,7 +182,10 @@ impl<'a> Sftp<'a> {
             })?;
 
         if session.authenticated() {
-            info!("[SFTP] Authenticated with private_key");
+            info!(
+                pack_tag = %tag(LogTag::Sftp),
+                "Authenticated with private_key"
+            );
             return Ok(());
         }
 
@@ -197,7 +201,7 @@ impl<'a> Sftp<'a> {
             .sftp()
             .map_err(|error| format!("Failed to open SFTP subsystem: {error}"))?;
 
-        info!("[SFTP] SFTP session opened");
+        info!(pack_tag = %tag(LogTag::Sftp), "SFTP session opened");
         Ok(sftp_session)
     }
 
@@ -209,7 +213,10 @@ impl<'a> Sftp<'a> {
                 continue;
             }
 
-            info!("[SFTP] Creating remote directory: {directory}");
+            info!(
+                pack_tag = %tag(LogTag::Sftp),
+                "Creating remote directory: {directory}"
+            );
             sftp_session
                 .mkdir(directory_path, 0o755)
                 .map_err(|error| format!("Failed to create SFTP directory {directory}: {error}"))?;
@@ -232,7 +239,10 @@ impl<'a> Sftp<'a> {
             .create(Path::new(remote_path))
             .map_err(|error| format!("Failed to create SFTP remote file {remote_path}: {error}"))?;
 
-        info!("[SFTP] Uploading backup: {remote_path}");
+        info!(
+            pack_tag = %tag(LogTag::Sftp),
+            "Uploading backup: {remote_path}"
+        );
         let started_at = Instant::now();
         let bytes_uploaded = copy_with_buffer(&mut source_file, &mut remote_file)
             .map_err(|error| format!("Failed to upload SFTP file to {remote_path}: {error}"))?;
@@ -248,7 +258,8 @@ impl<'a> Sftp<'a> {
     /// Open the raw TCP connection used by the SSH session.
     fn open_tcp_connection(&self) -> Result<TcpStream, String> {
         info!(
-            "[SFTP] Connecting to {}",
+            pack_tag = %tag(LogTag::Sftp),
+            "Connecting to {}",
             remote_address(&self.config.host, self.config.port)
         );
 
@@ -301,21 +312,28 @@ fn log_upload_duration(bytes_uploaded: u64, source_size: Option<u64>, duration: 
 
     if seconds > 0.0 {
         info!(
-            "[SFTP] Uploaded {:.2} MB in {:.2}s ({:.2} MB/s)",
+            pack_tag = %tag(LogTag::Sftp),
+            "Uploaded {:.2} MB in {:.2}s ({:.2} MB/s)",
             megabytes_uploaded,
             seconds,
             megabytes_uploaded / seconds
         );
     } else {
-        info!("[SFTP] Uploaded {:.2} MB", megabytes_uploaded);
+        info!(
+            pack_tag = %tag(LogTag::Sftp),
+            "Uploaded {:.2} MB",
+            megabytes_uploaded
+        );
     }
 
     if let Some(expected_size) = source_size
         && expected_size != bytes_uploaded
     {
         info!(
-            "[SFTP] Local file size changed during upload: expected {} bytes, uploaded {} bytes",
-            expected_size, bytes_uploaded
+            pack_tag = %tag(LogTag::Sftp),
+            "Local file size changed during upload: expected {} bytes, uploaded {} bytes",
+            expected_size,
+            bytes_uploaded
         );
     }
 }

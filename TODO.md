@@ -19,12 +19,13 @@
       Par défaut, afficher les logs `info`, `warn` et `error`.
       Avec `--verbose`, activer aussi les logs `debug` pour faciliter le diagnostic.
 
-- [ ] Étudier les tags de logs colorés
-      Aujourd'hui les tags comme `[Config]`, `[Run]`, `[Archive]` ou `[Local]` sont du texte
-      directement inclus dans le message de log. Pour les colorer proprement, il faudra choisir
-      entre une approche simple avec des couleurs ANSI dans les messages, une macro/helper de log,
-      ou une approche plus structurée avec un champ `tag` et un formatter dédié. À garder comme
-      polish CLI, pas prioritaire pour le MVP.
+- [x] Colorer les tags de logs proprement
+      Les tags comme `[Config]`, `[Run]`, `[Archive]` ou `[Local]` sont maintenant rendus via
+      `logging::tag(LogTag::...)` au lieu d'être du texte libre recopié dans chaque message.
+      Décision : garder le formatter `tracing` standard et centraliser seulement le rendu des tags
+      dans `src/logging.rs`, plutôt que d'ajouter un formatter custom trop lourd pour ce polish CLI.
+      Les couleurs sont activées uniquement sur terminal, respectent `NO_COLOR`, et peuvent être
+      forcées avec `FORCE_COLOR=1`.
 
 - [x] Améliorer le format des dates dans les logs
       Aujourd'hui les logs affichent une date UTC avec suffixe `Z`, par exemple
@@ -108,6 +109,12 @@
       Fait : pendant l'archive, pack ignore uniquement les erreurs `NotFound` sur les fichiers/dossiers qui disparaissent,
       loggue un warning, puis continue. Les autres erreurs restent bloquantes.
       L'include racine manquant au démarrage reste une erreur bloquante.
+
+- [ ] Logger un warning quand un chemin `archive.excludes` ne matche rien
+      Aujourd'hui un exclude inexistant est ignoré sans erreur, ce qui est volontaire : un dossier
+      optionnel comme `cache`, `tmp` ou `.git` ne doit pas faire échouer le backup s'il n'existe pas.
+      Amélioration possible : logger un warning si un chemin listé dans `archive.excludes` ne correspond
+      à aucun fichier/dossier parcouru, afin de détecter les typos sans stopper le backup.
 
 ## Temp directory
 
