@@ -1,6 +1,7 @@
 use crate::archive::ArchiveConfig;
 use crate::compressor::CompressorConfig;
 use crate::database::DatabaseConfig;
+use crate::logging::{LogTag, tag};
 use crate::paths;
 use crate::storage::StorageConfig;
 use serde::Deserialize;
@@ -65,24 +66,34 @@ pub(crate) fn validate_model_name(model_name: &str) -> Result<(), String> {
 /// Exits the process with an error message on failure.
 pub fn load_config(path: &str) -> Config {
     let yaml_content = std::fs::read_to_string(path).unwrap_or_else(|error| {
-        error!("[Config] Failed to read config file {path}: {error}");
+        error!(
+            pack_tag = %tag(LogTag::Config),
+            "Failed to read config file {path}: {error}"
+        );
         std::process::exit(1);
     });
     let expanded_yaml_content =
         expand_environment_variables(&yaml_content).unwrap_or_else(|error| {
             error!(
-                "[Config] Failed to expand environment variables in config file {path}: {error}"
+                pack_tag = %tag(LogTag::Config),
+                "Failed to expand environment variables in config file {path}: {error}"
             );
             std::process::exit(1);
         });
 
     let config: Config = serde_yaml::from_str(&expanded_yaml_content).unwrap_or_else(|error| {
-        error!("[Config] Failed to parse config file {path}: {error}");
+        error!(
+            pack_tag = %tag(LogTag::Config),
+            "Failed to parse config file {path}: {error}"
+        );
         std::process::exit(1);
     });
 
     validate_config(&config).unwrap_or_else(|error| {
-        error!("[Config] Invalid config file {path}: {error}");
+        error!(
+            pack_tag = %tag(LogTag::Config),
+            "Invalid config file {path}: {error}"
+        );
         std::process::exit(1);
     });
 

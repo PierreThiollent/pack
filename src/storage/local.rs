@@ -1,3 +1,4 @@
+use crate::logging::{LogTag, tag};
 use crate::paths;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
@@ -48,7 +49,11 @@ impl<'a> Local<'a> {
             copy_file(self.source_path, &destination_path)?;
         }
 
-        info!("[Local] Store succeeded: {}", destination_path.display());
+        info!(
+            pack_tag = %tag(LogTag::Local),
+            "Store succeeded: {}",
+            destination_path.display()
+        );
         Ok(())
     }
 
