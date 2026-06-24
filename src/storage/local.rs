@@ -1,6 +1,6 @@
 use crate::logging::{LogTag, tag};
 use crate::paths;
-use crate::storage::artifact_file_key;
+use crate::storage::{artifact_file_key, validate_file_key};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -69,6 +69,8 @@ impl<'a> Local<'a> {
 }
 
 pub fn delete(config: &LocalConfig, file_key: &str) -> Result<(), String> {
+    validate_file_key(file_key)?;
+
     let path = root_directory(&config.path).join(file_key);
     std::fs::remove_file(&path)
         .map_err(|error| format!("Failed to delete local storage file {path:?}: {error}"))
@@ -239,5 +241,15 @@ mod tests {
         delete(&config, "backup.tar.gz").unwrap();
 
         assert!(!backup_file.exists());
+    }
+
+    #[test]
+    fn delete_rejects_unsafe_file_key() {
+        let destination_directory = tempfile::tempdir().unwrap();
+        let config = make_config(&destination_directory.path().to_string_lossy());
+
+        let result = delete(&config, "../backup.tar.gz");
+
+        assert!(result.is_err());
     }
 }
