@@ -50,7 +50,7 @@ pub fn delete(config: &StorageConfig, file_key: &str) -> Result<(), String> {
     match config {
         StorageConfig::Local(local_config) => local::delete(local_config, file_key),
         StorageConfig::Ftp(ftp_config) => ftp::delete(ftp_config, file_key),
-        StorageConfig::Sftp(_) => Err("SFTP delete is not implemented yet".to_string()),
+        StorageConfig::Sftp(sftp_config) => sftp::delete(sftp_config, file_key),
     }
 }
 
@@ -162,6 +162,7 @@ mod tests {
     use super::*;
     use crate::storage::ftp::FtpConfig;
     use crate::storage::local::LocalConfig;
+    use crate::storage::sftp::SftpConfig;
 
     #[test]
     fn remote_directories_returns_no_directory_for_root() {
@@ -315,5 +316,22 @@ mod tests {
         });
 
         assert_eq!(config.keep(), 4);
+    }
+
+    #[test]
+    fn storage_config_keep_returns_sftp_keep() {
+        let config = StorageConfig::Sftp(SftpConfig {
+            host: "sftp.example.com".to_string(),
+            port: 22,
+            timeout: 300,
+            path: "/backups".to_string(),
+            username: "user".to_string(),
+            password: Some("secret".to_string()),
+            private_key: None,
+            passphrase: None,
+            keep: 5,
+        });
+
+        assert_eq!(config.keep(), 5);
     }
 }
