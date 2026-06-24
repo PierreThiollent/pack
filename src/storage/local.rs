@@ -1,5 +1,6 @@
 use crate::logging::{LogTag, tag};
 use crate::paths;
+use crate::storage::artifact_file_key;
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -8,6 +9,9 @@ use tracing::info;
 #[derive(Debug, Deserialize)]
 pub struct LocalConfig {
     pub path: String,
+
+    #[serde(default)]
+    pub keep: u32,
 }
 
 /// Local filesystem storage.
@@ -29,7 +33,7 @@ impl<'a> Local<'a> {
     }
 
     /// Store the source path in the configured local destination.
-    pub fn perform(&self) -> Result<(), String> {
+    pub fn perform(&self) -> Result<String, String> {
         if self.config.path.trim().is_empty() {
             return Err("Local storage path cannot be empty".to_string());
         }
@@ -54,21 +58,25 @@ impl<'a> Local<'a> {
             "Store succeeded: {}",
             destination_path.display()
         );
-        Ok(())
+        artifact_file_key(self.source_path, "Local storage")
     }
 
     /// Build the final destination path by joining configured root and source name.
     fn destination_path(&self) -> Result<PathBuf, String> {
-        let root_directory = PathBuf::from(paths::expand_tilde(&self.config.path));
-        let source_name = self.source_path.file_name().ok_or_else(|| {
-            format!(
-                "Local storage source path has no file name: {:?}",
-                self.source_path
-            )
-        })?;
-
-        Ok(root_directory.join(source_name))
+        Ok(root_directory(&self.config.path)
+            .join(artifact_file_key(self.source_path, "Local storage")?))
     }
+}
+
+pub fn delete(config: &LocalConfig, file_key: &str) -> Result<(), String> {
+    let path = root_directory(&config.path).join(file_key);
+    std::fs::remove_file(&path)
+        .map_err(|error| format!("Failed to delete local storage file {path:?}: {error}"))
+}
+
+/// Return the configured local storage root with a leading `~` expanded.
+fn root_directory(path: &str) -> PathBuf {
+    PathBuf::from(paths::expand_tilde(path))
 }
 
 /// Copy one file, creating its parent destination directory first.
@@ -120,6 +128,7 @@ mod tests {
     fn make_config(path: &str) -> LocalConfig {
         LocalConfig {
             path: path.to_string(),
+            keep: 0,
         }
     }
 
@@ -204,5 +213,31 @@ mod tests {
         let result = local.perform();
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn perform_returns_file_key() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let destination_directory = tempfile::tempdir().unwrap();
+        let source_file = source_directory.path().join("backup.tar.gz");
+        std::fs::write(&source_file, "backup").unwrap();
+        let config = make_config(&destination_directory.path().to_string_lossy());
+        let local = Local::new(&config, &source_file);
+
+        let file_key = local.perform().unwrap();
+
+        assert_eq!(file_key, "backup.tar.gz");
+    }
+
+    #[test]
+    fn delete_removes_local_file() {
+        let destination_directory = tempfile::tempdir().unwrap();
+        let backup_file = destination_directory.path().join("backup.tar.gz");
+        std::fs::write(&backup_file, "backup").unwrap();
+        let config = make_config(&destination_directory.path().to_string_lossy());
+
+        delete(&config, "backup.tar.gz").unwrap();
+
+        assert!(!backup_file.exists());
     }
 }
