@@ -1,6 +1,7 @@
 use crate::archive;
 use crate::compressor;
 use crate::config::{Config, Model, validate_model_name};
+use crate::cycler::{self, Cycler};
 use crate::database;
 use crate::logging::{LogTag, tag};
 use crate::paths;
@@ -50,7 +51,7 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
         run_model_databases(model, &dump_directory)?;
         archive::run(model.archive.as_ref(), &dump_directory)?;
         let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory, name)?;
-        run_model_storages(model, &artifact_path)?;
+        run_model_storages(name, model, &artifact_path)?;
 
         info!(pack_tag = %tag(LogTag::Model(name)), "Model completed");
     }
@@ -75,19 +76,54 @@ fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), Strin
     Ok(())
 }
 
-fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
+fn run_model_storages(model_name: &str, model: &Model, source_path: &Path) -> Result<(), String> {
     for (storage_name, storage_config) in &model.storages {
         info!(
             pack_tag = %tag(LogTag::Storage(storage_name)),
             "Uploading backup"
         );
-        storage::run(storage_config, source_path)?;
+        let file_key = storage::run(storage_config, source_path)?;
+        apply_storage_retention(model_name, storage_name, storage_config, &file_key)?;
         info!(
             pack_tag = %tag(LogTag::Storage(storage_name)),
             "Storage completed"
         );
     }
     Ok(())
+}
+
+/// Record the uploaded artifact in the cycler state and delete old backups beyond `keep`.
+fn apply_storage_retention(
+    model_name: &str,
+    storage_name: &str,
+    storage_config: &storage::StorageConfig,
+    file_key: &str,
+) -> Result<(), String> {
+    let state_path = cycler::default_state_path(model_name, storage_name);
+    let removed_file_keys =
+        Cycler::record_and_prune_path(&state_path, file_key, storage_config.keep())?;
+
+    for removed_file_key in removed_file_keys {
+        delete_old_backup(storage_config, &removed_file_key);
+    }
+
+    Ok(())
+}
+
+/// Delete one old backup selected by retention.
+///
+/// Cleanup errors are warning-only: a failed purge must not fail an otherwise successful backup run.
+fn delete_old_backup(storage_config: &storage::StorageConfig, file_key: &str) {
+    match storage::delete(storage_config, file_key) {
+        Ok(()) => info!(
+            pack_tag = %tag(LogTag::Cycler),
+            "Removed old backup: {file_key}"
+        ),
+        Err(error) => warn!(
+            pack_tag = %tag(LogTag::Cycler),
+            "Failed to delete old backup {file_key}: {error}"
+        ),
+    }
 }
 
 /// Create a unique temporary directory for one `perform` run.

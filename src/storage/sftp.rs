@@ -37,6 +37,9 @@ pub struct SftpConfig {
 
     #[serde(default)]
     pub passphrase: Option<String>,
+
+    #[serde(default)]
+    pub keep: u32,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -364,6 +367,7 @@ mod tests {
             password: Some("secret".to_string()),
             private_key: None,
             passphrase: None,
+            keep: 0,
         }
     }
 

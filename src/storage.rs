@@ -27,7 +27,7 @@ pub enum StorageConfig {
 /// Store a backup artifact based on the configuration.
 ///
 /// Dispatches to the correct storage implementation (local, FTP, SFTP, …).
-pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
+pub fn run(config: &StorageConfig, source_path: &Path) -> Result<String, String> {
     match config {
         StorageConfig::Local(local_config) => {
             let local = local::Local::new(local_config, source_path);
@@ -35,13 +35,42 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<(), String> {
         }
         StorageConfig::Ftp(ftp_config) => {
             let ftp = ftp::Ftp::new(ftp_config, source_path);
-            ftp.perform()
+            ftp.perform()?;
+            artifact_file_key(source_path, "FTP")
         }
         StorageConfig::Sftp(sftp_config) => {
             let sftp = sftp::Sftp::new(sftp_config, source_path);
-            sftp.perform()
+            sftp.perform()?;
+            artifact_file_key(source_path, "SFTP")
         }
     }
+}
+
+pub fn delete(config: &StorageConfig, file_key: &str) -> Result<(), String> {
+    match config {
+        StorageConfig::Local(local_config) => local::delete(local_config, file_key),
+        StorageConfig::Ftp(_) => Err("FTP delete is not implemented yet".to_string()),
+        StorageConfig::Sftp(_) => Err("SFTP delete is not implemented yet".to_string()),
+    }
+}
+
+impl StorageConfig {
+    pub fn keep(&self) -> u32 {
+        match self {
+            StorageConfig::Local(config) => config.keep,
+            StorageConfig::Ftp(config) => config.keep,
+            StorageConfig::Sftp(config) => config.keep,
+        }
+    }
+}
+
+/// Return the artifact key used by storages and the cycler, based on the local file name.
+pub(crate) fn artifact_file_key(source_path: &Path, storage_name: &str) -> Result<String, String> {
+    source_path
+        .file_name()
+        .and_then(|file_name| file_name.to_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("{storage_name} source path has no file name: {source_path:?}"))
 }
 
 /// Format a remote endpoint as `host:port`.
@@ -191,6 +220,7 @@ mod tests {
         let source_directory = tempfile::tempdir().unwrap();
         let config = StorageConfig::Local(LocalConfig {
             path: "/tmp/pack-test".to_string(),
+            keep: 0,
         });
 
         let result = run(&config, source_directory.path());
@@ -203,10 +233,37 @@ mod tests {
         let source_directory = tempfile::tempdir().unwrap();
         let config = StorageConfig::Local(LocalConfig {
             path: "".to_string(),
+            keep: 0,
         });
 
         let result = run(&config, source_directory.path());
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_returns_local_file_key() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let destination_directory = tempfile::tempdir().unwrap();
+        let source_file = source_directory.path().join("backup.tar.gz");
+        std::fs::write(&source_file, "backup").unwrap();
+        let config = StorageConfig::Local(LocalConfig {
+            path: destination_directory.path().to_string_lossy().into_owned(),
+            keep: 2,
+        });
+
+        let file_key = run(&config, &source_file).unwrap();
+
+        assert_eq!(file_key, "backup.tar.gz");
+    }
+
+    #[test]
+    fn storage_config_keep_returns_local_keep() {
+        let config = StorageConfig::Local(LocalConfig {
+            path: "/tmp/pack-test".to_string(),
+            keep: 7,
+        });
+
+        assert_eq!(config.keep(), 7);
     }
 }

@@ -688,6 +688,7 @@ dependencies = [
  "clap",
  "flate2",
  "serde",
+ "serde_json",
  "serde_yaml",
  "shellexpand",
  "ssh2",

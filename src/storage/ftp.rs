@@ -32,6 +32,9 @@ pub struct FtpConfig {
 
     #[serde(default)]
     pub no_check_certificate: bool,
+
+    #[serde(default)]
+    pub keep: u32,
 }
 
 /// FTP storage handler for one artifact upload.
@@ -226,6 +229,7 @@ mod tests {
             password: "secret".to_string(),
             explicit_tls: false,
             no_check_certificate: false,
+            keep: 0,
         }
     }
 

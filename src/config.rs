@@ -377,6 +377,7 @@ models:
       local_backup:
         type: local
         path: ~/Desktop/pack-backups
+        keep: 3
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -391,6 +392,7 @@ models:
         match storage {
             StorageConfig::Local(local_config) => {
                 assert_eq!(local_config.path, "~/Desktop/pack-backups");
+                assert_eq!(local_config.keep, 3);
             }
             StorageConfig::Ftp(_) | StorageConfig::Sftp(_) => panic!("Expected local storage"),
         }
@@ -412,6 +414,7 @@ models:
         password: pass1
         explicit_tls: true
         no_check_certificate: true
+        keep: 4
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -433,6 +436,7 @@ models:
                 assert_eq!(ftp_config.password, "pass1");
                 assert!(ftp_config.explicit_tls);
                 assert!(ftp_config.no_check_certificate);
+                assert_eq!(ftp_config.keep, 4);
             }
             StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
         }
@@ -467,6 +471,7 @@ models:
                 assert_eq!(ftp_config.path, "/");
                 assert!(!ftp_config.explicit_tls);
                 assert!(!ftp_config.no_check_certificate);
+                assert_eq!(ftp_config.keep, 0);
             }
             StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
         }
@@ -488,6 +493,7 @@ models:
         password: pass1
         private_key: ~/.ssh/id_rsa
         passphrase: key-passphrase
+        keep: 5
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -509,6 +515,7 @@ models:
                 assert_eq!(sftp_config.password.as_deref(), Some("pass1"));
                 assert_eq!(sftp_config.private_key.as_deref(), Some("~/.ssh/id_rsa"));
                 assert_eq!(sftp_config.passphrase.as_deref(), Some("key-passphrase"));
+                assert_eq!(sftp_config.keep, 5);
             }
             StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
         }
@@ -544,6 +551,7 @@ models:
                 assert_eq!(sftp_config.password.as_deref(), Some("pass1"));
                 assert!(sftp_config.private_key.is_none());
                 assert!(sftp_config.passphrase.is_none());
+                assert_eq!(sftp_config.keep, 0);
             }
             StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
         }

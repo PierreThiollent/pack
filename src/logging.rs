@@ -16,6 +16,7 @@ pub enum LogTag<'a> {
     Config,
     Run,
     Cleanup,
+    Cycler,
     Archive,
     Compressor(Option<&'a str>),
     Model(&'a str),
@@ -245,6 +246,7 @@ fn tag_text(log_tag: LogTag<'_>) -> String {
         LogTag::Config => "[Config]".to_string(),
         LogTag::Run => "[Run]".to_string(),
         LogTag::Cleanup => "[Cleanup]".to_string(),
+        LogTag::Cycler => "[Cycler]".to_string(),
         LogTag::Archive => "[Archive]".to_string(),
         LogTag::Compressor(Some(compressor)) => format!("[Compressor: {compressor}]"),
         LogTag::Compressor(None) => "[Compressor]".to_string(),
@@ -271,7 +273,10 @@ fn tag_color_from_text(text: &str) -> LogColor {
         LogColor::Cyan
     } else if text.starts_with("[Run]") {
         LogColor::Blue
-    } else if text.starts_with("[Cleanup]") || text.starts_with("[MySQL:") {
+    } else if text.starts_with("[Cleanup]")
+        || text.starts_with("[Cycler]")
+        || text.starts_with("[MySQL:")
+    {
         LogColor::Yellow
     } else if text.starts_with("[Archive]") || text.starts_with("[Local]") {
         LogColor::Green

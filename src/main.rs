@@ -1,6 +1,7 @@
 mod archive;
 mod compressor;
 mod config;
+mod cycler;
 mod database;
 mod logging;
 mod model;
