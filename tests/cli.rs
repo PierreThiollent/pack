@@ -1,7 +1,19 @@
 use flate2::read::GzDecoder;
 use std::fs::File;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
+
+fn clean_test_cycler_state() {
+    let home = std::env::var("HOME").expect("HOME should be set for CLI tests");
+    let path = PathBuf::from(home)
+        .join(".pack")
+        .join("cycler")
+        .join("my_app_local.json");
+
+    if path.exists() {
+        std::fs::remove_file(path).expect("Failed to clean up test cycler state");
+    }
+}
 
 /// Helper: run `cargo run -- <args>` and return the output
 fn run_pack(args: &[&str]) -> std::process::Output {
@@ -59,6 +71,8 @@ fn load_valid_config_file() {
 
 #[test]
 fn perform_archives_compresses_and_stores_local_artifact() {
+    clean_test_cycler_state();
+
     let workspace = tempfile::tempdir().unwrap();
     let included_file = workspace.path().join("included.txt");
     let storage_directory = workspace.path().join("backups");
@@ -128,6 +142,7 @@ models:
     );
 
     workspace.close().unwrap();
+    clean_test_cycler_state();
 }
 
 fn tar_gz_files_in(directory: &Path) -> Vec<std::path::PathBuf> {
