@@ -100,12 +100,24 @@ fn apply_storage_retention(
     file_key: &str,
 ) -> Result<(), String> {
     let state_path = cycler::default_state_path(model_name, storage_name);
-    let removed_file_keys =
-        Cycler::record_and_prune_path(&state_path, file_key, storage_config.keep())?;
+    let mut cycler = Cycler::load_from_path(&state_path)?;
 
-    for removed_file_key in removed_file_keys {
-        delete_old_backup(storage_config, &removed_file_key);
+    // Record the new backup first, then compute which older backups exceed `keep`.
+    // The candidates are not removed from the state yet: we only update the state after
+    // the corresponding storage deletion has actually succeeded.
+    cycler.add(file_key);
+    let candidate_file_keys = cycler.prune_candidates(storage_config.keep());
+    let mut deleted_file_keys = Vec::new();
+
+    for candidate_file_key in candidate_file_keys {
+        if delete_old_backup(storage_config, &candidate_file_key) {
+            deleted_file_keys.push(candidate_file_key);
+        }
     }
+
+    // Keep failed delete candidates in the cycler state so future runs can retry them.
+    cycler.remove_file_keys(&deleted_file_keys);
+    cycler.save_to_path(&state_path)?;
 
     Ok(())
 }
@@ -113,16 +125,22 @@ fn apply_storage_retention(
 /// Delete one old backup selected by retention.
 ///
 /// Cleanup errors are warning-only: a failed purge must not fail an otherwise successful backup run.
-fn delete_old_backup(storage_config: &storage::StorageConfig, file_key: &str) {
+fn delete_old_backup(storage_config: &storage::StorageConfig, file_key: &str) -> bool {
     match storage::delete(storage_config, file_key) {
-        Ok(()) => info!(
-            pack_tag = %tag(LogTag::Cycler),
-            "Removed old backup: {file_key}"
-        ),
-        Err(error) => warn!(
-            pack_tag = %tag(LogTag::Cycler),
-            "Failed to delete old backup {file_key}: {error}"
-        ),
+        Ok(()) => {
+            info!(
+                pack_tag = %tag(LogTag::Cycler),
+                "Removed old backup: {file_key}"
+            );
+            true
+        }
+        Err(error) => {
+            warn!(
+                pack_tag = %tag(LogTag::Cycler),
+                "Failed to delete old backup {file_key}: {error}"
+            );
+            false
+        }
     }
 }
 

@@ -297,8 +297,6 @@ cargo test
 cargo clippy --all-targets -- -D warnings
 ```
 
-The project uses Git hooks to run formatting checks before commits.
-
 ## License
 
 MIT
