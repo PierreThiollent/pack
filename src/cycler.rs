@@ -72,14 +72,11 @@ impl Cycler {
         });
     }
 
-    /// Add a backup, apply retention, and return file keys that should be deleted.
-    pub fn record_and_prune(&mut self, file_key: &str, keep: u32) -> Vec<String> {
-        self.add(file_key);
-        self.prune(keep)
-    }
-
-    /// Keep the newest `keep` packages and return removed file keys.
-    pub fn prune(&mut self, keep: u32) -> Vec<String> {
+    /// Return old package keys that exceed the retention limit without mutating the state.
+    ///
+    /// The caller must delete these packages from the storage first, then call
+    /// `remove_file_keys` only with the keys that were actually deleted successfully.
+    pub fn prune_candidates(&self, keep: u32) -> Vec<String> {
         if keep == 0 {
             return Vec::new();
         }
@@ -87,21 +84,16 @@ impl Cycler {
         let keep = keep as usize;
         let remove_count = self.packages.len().saturating_sub(keep);
         self.packages
-            .drain(..remove_count)
-            .map(|package| package.file_key)
+            .iter()
+            .take(remove_count)
+            .map(|package| package.file_key.clone())
             .collect()
     }
 
-    /// Load state, record a new package, apply retention, save state, and return file keys to delete.
-    pub fn record_and_prune_path(
-        path: &Path,
-        file_key: &str,
-        keep: u32,
-    ) -> Result<Vec<String>, String> {
-        let mut cycler = Self::load_from_path(path)?;
-        let removed_file_keys = cycler.record_and_prune(file_key, keep);
-        cycler.save_to_path(path)?;
-        Ok(removed_file_keys)
+    /// Remove packages from the state after their storage deletion succeeded.
+    pub fn remove_file_keys(&mut self, file_keys: &[String]) {
+        self.packages
+            .retain(|package| !file_keys.contains(&package.file_key));
     }
 
     /// Save cycler state as JSON.
@@ -235,91 +227,79 @@ mod tests {
     }
 
     #[test]
-    fn prune_keeps_all_packages_when_keep_is_zero() {
+    fn prune_candidates_keeps_all_packages_when_keep_is_zero() {
         let mut cycler = Cycler::new();
         cycler.add("old.tar.gz");
         cycler.add("new.tar.gz");
 
-        let removed = cycler.prune(0);
+        let candidates = cycler.prune_candidates(0);
 
-        assert!(removed.is_empty());
+        assert!(candidates.is_empty());
         assert_eq!(cycler.packages.len(), 2);
     }
 
     #[test]
-    fn prune_keeps_newest_packages() {
+    fn prune_candidates_returns_oldest_packages_without_mutating_state() {
         let mut cycler = Cycler::new();
         cycler.add("oldest.tar.gz");
         cycler.add("middle.tar.gz");
         cycler.add("newest.tar.gz");
 
-        let removed = cycler.prune(2);
+        let candidates = cycler.prune_candidates(2);
 
-        assert_eq!(removed, vec!["oldest.tar.gz"]);
-        assert_eq!(cycler.packages.len(), 2);
-        assert_eq!(cycler.packages[0].file_key, "middle.tar.gz");
-        assert_eq!(cycler.packages[1].file_key, "newest.tar.gz");
+        assert_eq!(candidates, vec!["oldest.tar.gz"]);
+        assert_eq!(cycler.packages.len(), 3);
+        assert_eq!(cycler.packages[0].file_key, "oldest.tar.gz");
+        assert_eq!(cycler.packages[1].file_key, "middle.tar.gz");
+        assert_eq!(cycler.packages[2].file_key, "newest.tar.gz");
     }
 
     #[test]
-    fn prune_removes_multiple_old_packages() {
+    fn prune_candidates_returns_multiple_old_packages() {
         let mut cycler = Cycler::new();
         cycler.add("one.tar.gz");
         cycler.add("two.tar.gz");
         cycler.add("three.tar.gz");
         cycler.add("four.tar.gz");
 
-        let removed = cycler.prune(1);
+        let candidates = cycler.prune_candidates(1);
 
-        assert_eq!(removed, vec!["one.tar.gz", "two.tar.gz", "three.tar.gz"]);
-        assert_eq!(cycler.packages.len(), 1);
-        assert_eq!(cycler.packages[0].file_key, "four.tar.gz");
+        assert_eq!(candidates, vec!["one.tar.gz", "two.tar.gz", "three.tar.gz"]);
+        assert_eq!(cycler.packages.len(), 4);
     }
 
     #[test]
-    fn record_and_prune_adds_new_package_before_pruning() {
+    fn remove_file_keys_removes_only_matching_packages() {
         let mut cycler = Cycler::new();
         cycler.add("old.tar.gz");
         cycler.add("current.tar.gz");
+        cycler.add("new.tar.gz");
 
-        let removed = cycler.record_and_prune("new.tar.gz", 2);
+        cycler.remove_file_keys(&["old.tar.gz".to_string()]);
 
-        assert_eq!(removed, vec!["old.tar.gz"]);
         assert_eq!(cycler.packages.len(), 2);
         assert_eq!(cycler.packages[0].file_key, "current.tar.gz");
         assert_eq!(cycler.packages[1].file_key, "new.tar.gz");
     }
 
     #[test]
-    fn record_and_prune_path_saves_updated_state() {
+    fn save_after_remove_file_keys_keeps_failed_delete_candidates() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("my_app_local.json");
+        let mut cycler = Cycler::new();
+        cycler.add("first.tar.gz");
+        cycler.add("second.tar.gz");
+        cycler.add("third.tar.gz");
 
-        let removed = Cycler::record_and_prune_path(&path, "first.tar.gz", 2).unwrap();
-        assert!(removed.is_empty());
+        let candidates = cycler.prune_candidates(2);
+        cycler.remove_file_keys(&[]);
+        cycler.save_to_path(&path).unwrap();
 
-        let removed = Cycler::record_and_prune_path(&path, "second.tar.gz", 2).unwrap();
-        assert!(removed.is_empty());
-
-        let removed = Cycler::record_and_prune_path(&path, "third.tar.gz", 2).unwrap();
-
-        assert_eq!(removed, vec!["first.tar.gz"]);
+        assert_eq!(candidates, vec!["first.tar.gz"]);
         let loaded_cycler = Cycler::load_from_path(&path).unwrap();
-        assert_eq!(loaded_cycler.packages.len(), 2);
-        assert_eq!(loaded_cycler.packages[0].file_key, "second.tar.gz");
-        assert_eq!(loaded_cycler.packages[1].file_key, "third.tar.gz");
-    }
-
-    #[test]
-    fn record_and_prune_path_keeps_all_when_keep_is_zero() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = directory.path().join("my_app_local.json");
-
-        Cycler::record_and_prune_path(&path, "first.tar.gz", 0).unwrap();
-        let removed = Cycler::record_and_prune_path(&path, "second.tar.gz", 0).unwrap();
-
-        assert!(removed.is_empty());
-        let loaded_cycler = Cycler::load_from_path(&path).unwrap();
-        assert_eq!(loaded_cycler.packages.len(), 2);
+        assert_eq!(loaded_cycler.packages.len(), 3);
+        assert_eq!(loaded_cycler.packages[0].file_key, "first.tar.gz");
+        assert_eq!(loaded_cycler.packages[1].file_key, "second.tar.gz");
+        assert_eq!(loaded_cycler.packages[2].file_key, "third.tar.gz");
     }
 }

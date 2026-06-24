@@ -142,17 +142,40 @@
 
 ## MySQL
 
-- [x] Ajouter les defaults MySQL inspirés de GoBackup
-      - `port: 3306`
-      - `username: root`
+- [x] Ajouter les defaults MySQL inspirés de GoBackup - `port: 3306` - `username: root`
 
-- [ ] Ajouter plus tard les autres options MySQL supportées par GoBackup
-      - `socket`
-      - `tables`
-      - `exclude_tables`
-      - `all_databases`
-      - `args` pour passer des options supplémentaires à `mysqldump`
-        Exemple : `--single-transaction --quick`
+- [ ] Ajouter plus tard les autres options MySQL supportées par GoBackup - `socket` - `tables` - `exclude_tables` - `all_databases` - `args` pour passer des options supplémentaires à `mysqldump`
+      Exemple : `--single-transaction --quick`
+
+## Cycler / rétention
+
+- [x] Clarifier la politique quand la suppression storage échoue
+      Décision : pack garde dans le state les backups que le storage n'a pas réussi à supprimer.
+      Le cycler calcule les candidats à supprimer, tente les suppressions, puis retire du state
+      uniquement les clés supprimées avec succès. C'est plus strict que GoBackup, qui retire les
+      entrées du state avant de supprimer physiquement les fichiers.
+
+- [ ] Documenter le fonctionnement du cycler dans le README
+      Expliquer `keep`, `keep: 0`, l'emplacement du state `~/.pack/cycler/`, le fait que le cycler
+      ne supprime que les fichiers connus dans son state, et le comportement warning-only quand une
+      suppression échoue.
+
+- [ ] Gérer les runs concurrents avec un lock de cycler
+      Deux `pack perform` lancés en parallèle sur le même couple model/storage peuvent lire puis
+      réécrire le même fichier `~/.pack/cycler/{model}_{storage}.json`, avec un risque de perdre
+      une entrée ou d'appliquer une rétention incohérente. Ajouter plus tard un lock fichier autour
+      du load → add/prune → save.
+
+- [ ] Rendre les noms d'artifacts encore plus uniques
+      Les artifacts utilisent aujourd'hui un timestamp à la seconde. Deux runs très proches du même
+      model peuvent théoriquement produire le même nom final. Ajouter plus tard millisecondes,
+      nanosecondes ou suffixe aléatoire, tout en gardant un nom lisible et triable.
+
+- [ ] Étudier une commande de réconciliation / prune des fichiers orphelins
+      Le cycler ne supprime que les backups présents dans son state. Un fichier déjà présent dans le
+      storage mais absent du JSON cycler reste donc en place, comme dans GoBackup. Plus tard, ajouter
+      éventuellement une commande du type `pack cycler reconcile` ou `pack storage prune` pour lister
+      ou nettoyer ces fichiers orphelins explicitement.
 
 ## SFTP
 
@@ -225,13 +248,7 @@
       puis utiliser `crate::error::Result<T>` dans les modules.
 
 - [ ] Ajouter `thiserror`
-      Définir une enum principale, par exemple :
-      - `Config`
-      - `Database`
-      - `Archive`
-      - `Storage`
-      - `Io(#[from] std::io::Error)`
-      - `Process`
+      Définir une enum principale, par exemple : - `Config` - `Database` - `Archive` - `Storage` - `Io(#[from] std::io::Error)` - `Process`
 
 - [ ] Évaluer si `anyhow` est utile
       `thiserror` est adapté pour les erreurs structurées du projet.
@@ -239,11 +256,14 @@
       mais on peut commencer avec `thiserror` seul.
 
 - [ ] Faire cette refacto au bon moment
-      Pas maintenant au milieu de l’archive. Bon moment possible :
-      - après l’archive complète
-      - avant compression
-      - ou avant FTP/SFTP, quand les erreurs réseau/process deviendront plus nombreuses.
+      Pas maintenant au milieu de l’archive. Bon moment possible : - après l’archive complète - avant compression - ou avant FTP/SFTP, quand les erreurs réseau/process deviendront plus nombreuses.
 
 ## Renommer le nom du CLI
 
 - [x] Renommer le projet et le binaire en `pack`
+
+## Changelog
+
+- [] Mettre en place git-cliff pour générer un changelog automatique à partir des commits et des PRs.
+  Décision : utiliser [`git-cliff`](https://github.com/orhun/git-cliff) pour générer un changelog Markdown, avec un fichier de config
+  `.gitcliff.toml` dans le repo. Le changelog sera mis à jour automatiquement lors de la release.
