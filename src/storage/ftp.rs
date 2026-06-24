@@ -1,6 +1,7 @@
 use crate::logging::{LogTag, tag};
 use crate::storage::{
-    remote_address, remote_directories, remote_file_path, socket_address, timeout_duration,
+    remote_address, remote_directories, remote_file_path, remote_file_path_from_key,
+    socket_address, timeout_duration,
 };
 use serde::Deserialize;
 use std::fs::File;
@@ -54,13 +55,25 @@ impl<'a> Ftp<'a> {
 
     /// Connect, authenticate, create remote directories and upload the artifact.
     pub fn perform(&self) -> Result<(), String> {
-        self.validate_config()?;
+        validate_config(self.config)?;
 
         if self.config.explicit_tls {
-            let mut ftp_stream = self.open_explicit_tls()?;
+            info!(
+                pack_tag = %tag(LogTag::Ftp),
+                "Connecting to {} with explicit TLS and remote path {}",
+                remote_address(&self.config.host, self.config.port),
+                self.config.path
+            );
+            let mut ftp_stream = connect_explicit_tls(self.config)?;
             self.perform_with_stream(&mut ftp_stream)
         } else {
-            let mut ftp_stream = self.open_plain()?;
+            info!(
+                pack_tag = %tag(LogTag::Ftp),
+                "Connecting to {} with remote path {}",
+                remote_address(&self.config.host, self.config.port),
+                self.config.path
+            );
+            let mut ftp_stream = connect_plain(self.config)?;
             self.perform_with_stream(&mut ftp_stream)
         }
     }
@@ -79,63 +92,6 @@ impl<'a> Ftp<'a> {
 
         info!(pack_tag = %tag(LogTag::Ftp), "Store succeeded: {remote_path}");
         Ok(())
-    }
-
-    /// Open a plain FTP connection and login with username/password.
-    fn open_plain(&self) -> Result<FtpStream, String> {
-        info!(
-            pack_tag = %tag(LogTag::Ftp),
-            "Connecting to {} with remote path {}",
-            remote_address(&self.config.host, self.config.port),
-            self.config.path
-        );
-
-        let mut ftp_stream = FtpStream::connect_timeout(
-            socket_address(&self.config.host, self.config.port, "FTP")?,
-            timeout_duration(self.config.timeout),
-        )
-        .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
-
-        ftp_stream
-            .login(&self.config.username, &self.config.password)
-            .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
-
-        Ok(ftp_stream)
-    }
-
-    /// Open an explicit FTPS connection by upgrading the FTP socket to TLS before login.
-    fn open_explicit_tls(&self) -> Result<NativeTlsFtpStream, String> {
-        info!(
-            pack_tag = %tag(LogTag::Ftp),
-            "Connecting to {} with explicit TLS and remote path {}",
-            remote_address(&self.config.host, self.config.port),
-            self.config.path
-        );
-
-        let ftp_stream = NativeTlsFtpStream::connect_timeout(
-            socket_address(&self.config.host, self.config.port, "FTP")?,
-            timeout_duration(self.config.timeout),
-        )
-        .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
-
-        let tls_connector = TlsConnector::builder()
-            .danger_accept_invalid_certs(self.config.no_check_certificate)
-            .build()
-            .map_err(|error| format!("Failed to build FTP TLS connector: {error}"))?;
-
-        let mut ftp_stream = ftp_stream
-            .into_secure(NativeTlsConnector::from(tls_connector), &self.config.host)
-            .map_err(|error| {
-                format!(
-                    "FTP server rejected explicit TLS. Disable `explicit_tls` if this server does not support FTPS explicit mode: {error}"
-                )
-            })?;
-
-        ftp_stream
-            .login(&self.config.username, &self.config.password)
-            .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
-
-        Ok(ftp_stream)
     }
 
     /// Create the configured remote directory and its parents when missing.
@@ -189,18 +145,6 @@ impl<'a> Ftp<'a> {
     fn remote_path(&self) -> Result<String, String> {
         remote_file_path(&self.config.path, self.source_path, "FTP")
     }
-
-    /// Validate FTP settings before opening any network connection.
-    fn validate_config(&self) -> Result<(), String> {
-        if self.config.host.trim().is_empty()
-            || self.config.username.trim().is_empty()
-            || self.config.password.trim().is_empty()
-        {
-            return Err("FTP host, username or password cannot be empty".to_string());
-        }
-
-        Ok(())
-    }
 }
 
 fn default_port() -> u16 {
@@ -213,6 +157,85 @@ fn default_timeout() -> u64 {
 
 fn default_path() -> String {
     "/".to_string()
+}
+
+pub fn delete(config: &FtpConfig, file_key: &str) -> Result<(), String> {
+    let remote_path = remote_file_path_from_key(&config.path, file_key)?;
+    validate_config(config)?;
+
+    if config.explicit_tls {
+        let mut ftp_stream = connect_explicit_tls(config)?;
+        delete_with_stream(&mut ftp_stream, &remote_path)
+    } else {
+        let mut ftp_stream = connect_plain(config)?;
+        delete_with_stream(&mut ftp_stream, &remote_path)
+    }
+}
+
+fn delete_with_stream<T: TlsStream>(
+    ftp_stream: &mut ImplFtpStream<T>,
+    remote_path: &str,
+) -> Result<(), String> {
+    ftp_stream
+        .rm(remote_path)
+        .map_err(|error| format!("Failed to delete FTP file {remote_path}: {error}"))?;
+    ftp_stream
+        .quit()
+        .map_err(|error| format!("Failed to close FTP connection: {error}"))?;
+
+    Ok(())
+}
+
+fn validate_config(config: &FtpConfig) -> Result<(), String> {
+    if config.host.trim().is_empty()
+        || config.username.trim().is_empty()
+        || config.password.trim().is_empty()
+    {
+        return Err("FTP host, username or password cannot be empty".to_string());
+    }
+
+    Ok(())
+}
+
+fn connect_plain(config: &FtpConfig) -> Result<FtpStream, String> {
+    let mut ftp_stream = FtpStream::connect_timeout(
+        socket_address(&config.host, config.port, "FTP")?,
+        timeout_duration(config.timeout),
+    )
+    .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+
+    ftp_stream
+        .login(&config.username, &config.password)
+        .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
+
+    Ok(ftp_stream)
+}
+
+fn connect_explicit_tls(config: &FtpConfig) -> Result<NativeTlsFtpStream, String> {
+    let ftp_stream = NativeTlsFtpStream::connect_timeout(
+        socket_address(&config.host, config.port, "FTP")?,
+        timeout_duration(config.timeout),
+    )
+    .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+
+    let tls_connector = TlsConnector::builder()
+        .danger_accept_invalid_certs(config.no_check_certificate)
+        .build()
+        .map_err(|error| format!("Failed to build FTP TLS connector: {error}"))?;
+
+    let mut ftp_stream = ftp_stream
+        .into_secure(NativeTlsConnector::from(tls_connector), &config.host)
+        .map_err(|error| {
+            format!(
+                "FTP server rejected explicit TLS. Disable `explicit_tls` if this server does not support FTPS explicit mode: {error}"
+            )
+        })?;
+
+    ftp_stream
+        .login(&config.username, &config.password)
+        .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
+
+    Ok(ftp_stream)
 }
 
 #[cfg(test)]
@@ -236,20 +259,16 @@ mod tests {
     #[test]
     fn validate_config_accepts_required_fields() {
         let config = valid_config();
-        let source_path = Path::new("backup.tar.gz");
-        let ftp = Ftp::new(&config, source_path);
 
-        assert!(ftp.validate_config().is_ok());
+        assert!(validate_config(&config).is_ok());
     }
 
     #[test]
     fn validate_config_rejects_empty_required_fields() {
         let mut config = valid_config();
         config.host = "".to_string();
-        let source_path = Path::new("backup.tar.gz");
-        let ftp = Ftp::new(&config, source_path);
 
-        assert!(ftp.validate_config().is_err());
+        assert!(validate_config(&config).is_err());
     }
 
     #[test]
@@ -276,5 +295,14 @@ mod tests {
             ftp.remote_path().unwrap(),
             "/backups/my_app-20260616-120000.tar.gz"
         );
+    }
+
+    #[test]
+    fn delete_rejects_unsafe_file_key_before_connecting() {
+        let config = valid_config();
+
+        let result = delete(&config, "../backup.tar.gz");
+
+        assert!(result.is_err());
     }
 }

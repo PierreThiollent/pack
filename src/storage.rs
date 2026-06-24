@@ -49,7 +49,7 @@ pub fn run(config: &StorageConfig, source_path: &Path) -> Result<String, String>
 pub fn delete(config: &StorageConfig, file_key: &str) -> Result<(), String> {
     match config {
         StorageConfig::Local(local_config) => local::delete(local_config, file_key),
-        StorageConfig::Ftp(_) => Err("FTP delete is not implemented yet".to_string()),
+        StorageConfig::Ftp(ftp_config) => ftp::delete(ftp_config, file_key),
         StorageConfig::Sftp(_) => Err("SFTP delete is not implemented yet".to_string()),
     }
 }
@@ -126,22 +126,41 @@ pub(crate) fn remote_file_path(
     source_path: &Path,
     storage_name: &str,
 ) -> Result<String, String> {
-    let file_name = source_path
-        .file_name()
-        .and_then(|file_name| file_name.to_str())
-        .ok_or_else(|| format!("{storage_name} source path has no file name: {source_path:?}"))?;
+    let file_key = artifact_file_key(source_path, storage_name)?;
+    remote_file_path_from_key(remote_directory, &file_key)
+}
+
+/// Build the final remote file path from a remote directory and a cycler file key.
+pub(crate) fn remote_file_path_from_key(
+    remote_directory: &str,
+    file_key: &str,
+) -> Result<String, String> {
+    validate_file_key(file_key)?;
 
     let remote_directory = remote_directory.trim_end_matches('/');
     if remote_directory.is_empty() {
-        Ok(format!("/{file_name}"))
+        Ok(format!("/{file_key}"))
     } else {
-        Ok(format!("{remote_directory}/{file_name}"))
+        Ok(format!("{remote_directory}/{file_key}"))
     }
+}
+
+/// Validate a cycler file key before joining it to a local or remote storage root.
+///
+/// The cycler state is local JSON and may be edited or corrupted, so storage deletion only accepts
+/// simple artifact basenames and rejects path separators.
+pub(crate) fn validate_file_key(file_key: &str) -> Result<(), String> {
+    if file_key.trim().is_empty() || file_key.contains('/') || file_key.contains('\\') {
+        return Err(format!("Invalid storage file key: {file_key}"));
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::ftp::FtpConfig;
     use crate::storage::local::LocalConfig;
 
     #[test]
@@ -216,6 +235,20 @@ mod tests {
     }
 
     #[test]
+    fn remote_file_path_from_key_uses_configured_directory() {
+        assert_eq!(
+            remote_file_path_from_key("/backups", "backup.tar.gz").unwrap(),
+            "/backups/backup.tar.gz"
+        );
+    }
+
+    #[test]
+    fn remote_file_path_from_key_rejects_path_separators() {
+        assert!(remote_file_path_from_key("/backups", "../backup.tar.gz").is_err());
+        assert!(remote_file_path_from_key("/backups", "nested\\backup.tar.gz").is_err());
+    }
+
+    #[test]
     fn run_dispatches_to_local_storage() {
         let source_directory = tempfile::tempdir().unwrap();
         let config = StorageConfig::Local(LocalConfig {
@@ -265,5 +298,22 @@ mod tests {
         });
 
         assert_eq!(config.keep(), 7);
+    }
+
+    #[test]
+    fn storage_config_keep_returns_ftp_keep() {
+        let config = StorageConfig::Ftp(FtpConfig {
+            host: "ftp.example.com".to_string(),
+            port: 21,
+            timeout: 300,
+            path: "/backups".to_string(),
+            username: "user".to_string(),
+            password: "secret".to_string(),
+            explicit_tls: false,
+            no_check_certificate: false,
+            keep: 4,
+        });
+
+        assert_eq!(config.keep(), 4);
     }
 }
