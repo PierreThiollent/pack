@@ -14,6 +14,20 @@ This file defines conventions that the coding agent (Pi) must follow when workin
 
 - Do not commit unless Pierre explicitly asks to commit
 - Use meaningful English commit messages
+- Commit messages must follow Conventional Commits and be validated with Cocogitto.
+- Preferred format: `<type>(<optional scope>): <description>`, for example `feat(storage): add retention cleanup` or `fix(config): reject invalid model names`.
+- Common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `ci`, `build`, `perf`, `style`, `revert`.
+- Before creating or amending commits, make sure the repository hooks are active with `git config core.hooksPath .githooks` and Cocogitto is installed (`cargo install cocogitto`).
+- The `.githooks/commit-msg` hook runs `cog verify --file <commit-message-file>` to reject non-compliant messages.
+- If Pierre explicitly asks to rewrite non-compliant history, use `cog edit --from-latest-tag` carefully. It rewrites Git history and changes commit SHAs. Reference: <https://docs.cocogitto.io/guide/edit.html>
+
+## Releases and changelog
+
+- Cocogitto is the source of truth for Conventional Commit validation and release changelog generation for now.
+- The Cocogitto configuration lives in `cog.toml`; consult <https://docs.cocogitto.io/> before changing release, changelog, hook, or bump behavior.
+- Generate/update the changelog for each release with Cocogitto.
+- Keep the `v` tag prefix convention (`v0.1.0`, `v0.2.0`, ...), matching `tag_prefix = "v"` in `cog.toml`.
+- Do not run release commands that create tags, bump versions, or rewrite history unless Pierre explicitly asks for it.
 
 ## Code style
 
