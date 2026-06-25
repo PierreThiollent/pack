@@ -55,7 +55,7 @@ impl<'a> Ftp<'a> {
 
     /// Connect, authenticate, create remote directories and upload the artifact.
     pub fn perform(&self, delete_after_upload: &[String]) -> Result<StorageRunResult, String> {
-        validate_config(self.config)?;
+        self.validate_config()?;
 
         if self.config.explicit_tls {
             info!(
@@ -64,7 +64,7 @@ impl<'a> Ftp<'a> {
                 remote_address(&self.config.host, self.config.port),
                 self.config.path
             );
-            let mut ftp_stream = connect_explicit_tls(self.config)?;
+            let mut ftp_stream = self.connect_explicit_tls()?;
             self.perform_with_stream(&mut ftp_stream, delete_after_upload)
         } else {
             info!(
@@ -73,7 +73,7 @@ impl<'a> Ftp<'a> {
                 remote_address(&self.config.host, self.config.port),
                 self.config.path
             );
-            let mut ftp_stream = connect_plain(self.config)?;
+            let mut ftp_stream = self.connect_plain()?;
             self.perform_with_stream(&mut ftp_stream, delete_after_upload)
         }
     }
@@ -148,6 +148,61 @@ impl<'a> Ftp<'a> {
         Ok(())
     }
 
+    /// Validate FTP settings before opening any network connection.
+    fn validate_config(&self) -> Result<(), String> {
+        if self.config.host.trim().is_empty()
+            || self.config.username.trim().is_empty()
+            || self.config.password.trim().is_empty()
+        {
+            return Err("FTP host, username or password cannot be empty".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Connect and authenticate with plain FTP.
+    fn connect_plain(&self) -> Result<FtpStream, String> {
+        let mut ftp_stream = FtpStream::connect_timeout(
+            socket_address(&self.config.host, self.config.port, "FTP")?,
+            timeout_duration(self.config.timeout),
+        )
+        .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+
+        ftp_stream
+            .login(&self.config.username, &self.config.password)
+            .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
+
+        Ok(ftp_stream)
+    }
+
+    /// Connect, enable explicit TLS, and authenticate.
+    fn connect_explicit_tls(&self) -> Result<NativeTlsFtpStream, String> {
+        let ftp_stream = NativeTlsFtpStream::connect_timeout(
+            socket_address(&self.config.host, self.config.port, "FTP")?,
+            timeout_duration(self.config.timeout),
+        )
+        .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
+
+        let tls_connector = TlsConnector::builder()
+            .danger_accept_invalid_certs(self.config.no_check_certificate)
+            .build()
+            .map_err(|error| format!("Failed to build FTP TLS connector: {error}"))?;
+
+        let mut ftp_stream = ftp_stream
+            .into_secure(NativeTlsConnector::from(tls_connector), &self.config.host)
+            .map_err(|error| {
+                format!(
+                    "FTP server rejected explicit TLS. Disable `explicit_tls` if this server does not support FTPS explicit mode: {error}"
+                )
+            })?;
+
+        ftp_stream
+            .login(&self.config.username, &self.config.password)
+            .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
+
+        Ok(ftp_stream)
+    }
+
     /// Build the final remote path from configured directory and artifact name.
     fn remote_path(&self) -> Result<String, String> {
         remote_file_path(&self.config.path, self.source_path, "FTP")
@@ -177,58 +232,6 @@ fn delete_remote_file_with_stream<T: TlsStream>(
     Ok(())
 }
 
-fn validate_config(config: &FtpConfig) -> Result<(), String> {
-    if config.host.trim().is_empty()
-        || config.username.trim().is_empty()
-        || config.password.trim().is_empty()
-    {
-        return Err("FTP host, username or password cannot be empty".to_string());
-    }
-
-    Ok(())
-}
-
-fn connect_plain(config: &FtpConfig) -> Result<FtpStream, String> {
-    let mut ftp_stream = FtpStream::connect_timeout(
-        socket_address(&config.host, config.port, "FTP")?,
-        timeout_duration(config.timeout),
-    )
-    .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
-
-    ftp_stream
-        .login(&config.username, &config.password)
-        .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
-
-    Ok(ftp_stream)
-}
-
-fn connect_explicit_tls(config: &FtpConfig) -> Result<NativeTlsFtpStream, String> {
-    let ftp_stream = NativeTlsFtpStream::connect_timeout(
-        socket_address(&config.host, config.port, "FTP")?,
-        timeout_duration(config.timeout),
-    )
-    .map_err(|error| format!("Failed to connect to FTP server: {error}"))?;
-
-    let tls_connector = TlsConnector::builder()
-        .danger_accept_invalid_certs(config.no_check_certificate)
-        .build()
-        .map_err(|error| format!("Failed to build FTP TLS connector: {error}"))?;
-
-    let mut ftp_stream = ftp_stream
-        .into_secure(NativeTlsConnector::from(tls_connector), &config.host)
-        .map_err(|error| {
-            format!(
-                "FTP server rejected explicit TLS. Disable `explicit_tls` if this server does not support FTPS explicit mode: {error}"
-            )
-        })?;
-
-    ftp_stream
-        .login(&config.username, &config.password)
-        .map_err(|error| format!("Failed to login to FTP server: {error}"))?;
-
-    Ok(ftp_stream)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,16 +253,18 @@ mod tests {
     #[test]
     fn validate_config_accepts_required_fields() {
         let config = valid_config();
+        let ftp = Ftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_ok());
+        assert!(ftp.validate_config().is_ok());
     }
 
     #[test]
     fn validate_config_rejects_empty_required_fields() {
         let mut config = valid_config();
         config.host = "".to_string();
+        let ftp = Ftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_err());
+        assert!(ftp.validate_config().is_err());
     }
 
     #[test]

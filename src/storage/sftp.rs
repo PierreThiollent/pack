@@ -68,11 +68,11 @@ impl<'a> Sftp<'a> {
 
     /// Connect, authenticate, create remote directories and upload the artifact.
     pub fn perform(&self, delete_after_upload: &[String]) -> Result<StorageRunResult, String> {
-        validate_config(self.config)?;
+        self.validate_config()?;
 
-        let mut session = connect_ssh(self.config)?;
-        authenticate(self.config, &mut session)?;
-        let sftp_session = open_sftp_subsystem(&session)?;
+        let mut session = self.connect_ssh()?;
+        self.authenticate(&mut session)?;
+        let sftp_session = self.open_sftp_subsystem(&session)?;
         self.ensure_remote_directory(&sftp_session)?;
         let remote_path = self.remote_path()?;
         self.upload(&sftp_session, &remote_path)?;
@@ -136,6 +136,164 @@ impl<'a> Sftp<'a> {
         Ok(())
     }
 
+    /// Open the SFTP subsystem over the authenticated SSH session.
+    fn open_sftp_subsystem(&self, session: &Session) -> Result<Ssh2Sftp, String> {
+        let sftp_session = session
+            .sftp()
+            .map_err(|error| format!("Failed to open SFTP subsystem: {error}"))?;
+
+        info!(pack_tag = %tag(LogTag::Sftp), "SFTP session opened");
+        Ok(sftp_session)
+    }
+
+    /// Open the TCP connection and perform the SSH handshake.
+    fn connect_ssh(&self) -> Result<Session, String> {
+        let tcp_stream = self.open_tcp_connection()?;
+        let mut session = Session::new()
+            .map_err(|error| format!("Failed to create SFTP SSH session: {error}"))?;
+        session.set_tcp_stream(tcp_stream);
+        session
+            .handshake()
+            .map_err(|error| format!("Failed to start SFTP SSH session: {error}"))?;
+
+        info!(pack_tag = %tag(LogTag::Sftp), "SSH session established");
+        Ok(session)
+    }
+
+    /// Open the raw TCP connection used by the SSH session.
+    fn open_tcp_connection(&self) -> Result<TcpStream, String> {
+        info!(
+            pack_tag = %tag(LogTag::Sftp),
+            "Connecting to {}",
+            remote_address(&self.config.host, self.config.port)
+        );
+
+        let tcp_stream = TcpStream::connect_timeout(
+            &socket_address(&self.config.host, self.config.port, "SFTP")?,
+            timeout_duration(self.config.timeout),
+        )
+        .map_err(|error| format!("Failed to connect to SFTP server: {error}"))?;
+        tcp_stream
+            .set_nodelay(true)
+            .map_err(|error| format!("Failed to configure SFTP TCP connection: {error}"))?;
+        Ok(tcp_stream)
+    }
+
+    /// Validate SFTP settings before opening any network connection.
+    fn validate_config(&self) -> Result<(), String> {
+        if self.config.host.trim().is_empty() || self.config.username.trim().is_empty() {
+            return Err("SFTP host or username cannot be empty".to_string());
+        }
+
+        if self.config.password.is_none() && self.config.private_key.is_none() {
+            return Err("SFTP password or private_key is required".to_string());
+        }
+
+        if self
+            .config
+            .private_key
+            .as_deref()
+            .is_some_and(|private_key| private_key.trim().is_empty())
+        {
+            return Err("SFTP private_key cannot be empty".to_string());
+        }
+
+        if self.config.passphrase.is_some() && self.config.private_key.is_none() {
+            return Err("SFTP passphrase requires private_key authentication".to_string());
+        }
+
+        Ok(())
+    }
+
+    /// Authenticate the SSH session with the configured SFTP auth method.
+    fn authenticate(&self, session: &mut Session) -> Result<(), String> {
+        match self.auth_method()? {
+            SftpAuthMethod::Password => self.authenticate_with_password(session),
+            SftpAuthMethod::PrivateKey => self.authenticate_with_private_key(session),
+        }
+    }
+
+    /// Choose the authentication method from the parsed config.
+    fn auth_method(&self) -> Result<SftpAuthMethod, String> {
+        if self.config.password.is_some() {
+            return Ok(SftpAuthMethod::Password);
+        }
+
+        if self.config.private_key.is_some() {
+            return Ok(SftpAuthMethod::PrivateKey);
+        }
+
+        Err("SFTP password or private_key is required".to_string())
+    }
+
+    /// Authenticate with the configured password.
+    fn authenticate_with_password(&self, session: &mut Session) -> Result<(), String> {
+        let password =
+            self.config.password.as_ref().ok_or_else(|| {
+                "SFTP password is required for password authentication".to_string()
+            })?;
+
+        session
+            .userauth_password(&self.config.username, password)
+            .map_err(|error| {
+                format!("Failed to authenticate to SFTP server with password: {error}")
+            })?;
+
+        if session.authenticated() {
+            info!(pack_tag = %tag(LogTag::Sftp), "Authenticated with password");
+            return Ok(());
+        }
+
+        Err("Failed to authenticate to SFTP server with password".to_string())
+    }
+
+    /// Authenticate with the configured private key and optional passphrase.
+    fn authenticate_with_private_key(&self, session: &mut Session) -> Result<(), String> {
+        let private_key_path = self.private_key_path()?;
+        if !private_key_path.is_file() {
+            return Err(format!(
+                "SFTP private_key file does not exist or is not a file: {}",
+                private_key_path.display()
+            ));
+        }
+
+        session
+            .userauth_pubkey_file(
+                &self.config.username,
+                None,
+                &private_key_path,
+                self.config.passphrase.as_deref(),
+            )
+            .map_err(|error| {
+                format!(
+                    "Failed to authenticate to SFTP server with private_key {}: {error}",
+                    private_key_path.display()
+                )
+            })?;
+
+        if session.authenticated() {
+            info!(
+                pack_tag = %tag(LogTag::Sftp),
+                "Authenticated with private_key"
+            );
+            return Ok(());
+        }
+
+        Err(format!(
+            "Failed to authenticate to SFTP server with private_key {}",
+            private_key_path.display()
+        ))
+    }
+
+    /// Return the configured private key path with a leading `~` expanded.
+    fn private_key_path(&self) -> Result<PathBuf, String> {
+        let private_key = self.config.private_key.as_deref().ok_or_else(|| {
+            "SFTP private_key is required for private_key authentication".to_string()
+        })?;
+
+        Ok(PathBuf::from(expand_tilde(private_key)))
+    }
+
     /// Build the final remote path from configured directory and artifact name.
     fn remote_path(&self) -> Result<String, String> {
         remote_file_path(&self.config.path, self.source_path, "SFTP")
@@ -148,162 +306,6 @@ fn delete_with_session(sftp_session: &Ssh2Sftp, remote_path: &str) -> Result<(),
         .map_err(|error| format!("Failed to delete SFTP file {remote_path}: {error}"))?;
 
     Ok(())
-}
-
-/// Open the SFTP subsystem over the authenticated SSH session.
-fn open_sftp_subsystem(session: &Session) -> Result<Ssh2Sftp, String> {
-    let sftp_session = session
-        .sftp()
-        .map_err(|error| format!("Failed to open SFTP subsystem: {error}"))?;
-
-    info!(pack_tag = %tag(LogTag::Sftp), "SFTP session opened");
-    Ok(sftp_session)
-}
-
-/// Open the TCP connection and perform the SSH handshake.
-fn connect_ssh(config: &SftpConfig) -> Result<Session, String> {
-    let tcp_stream = open_tcp_connection(config)?;
-    let mut session =
-        Session::new().map_err(|error| format!("Failed to create SFTP SSH session: {error}"))?;
-    session.set_tcp_stream(tcp_stream);
-    session
-        .handshake()
-        .map_err(|error| format!("Failed to start SFTP SSH session: {error}"))?;
-
-    info!(pack_tag = %tag(LogTag::Sftp), "SSH session established");
-    Ok(session)
-}
-
-/// Open the raw TCP connection used by the SSH session.
-fn open_tcp_connection(config: &SftpConfig) -> Result<TcpStream, String> {
-    info!(
-        pack_tag = %tag(LogTag::Sftp),
-        "Connecting to {}",
-        remote_address(&config.host, config.port)
-    );
-
-    let tcp_stream = TcpStream::connect_timeout(
-        &socket_address(&config.host, config.port, "SFTP")?,
-        timeout_duration(config.timeout),
-    )
-    .map_err(|error| format!("Failed to connect to SFTP server: {error}"))?;
-    tcp_stream
-        .set_nodelay(true)
-        .map_err(|error| format!("Failed to configure SFTP TCP connection: {error}"))?;
-    Ok(tcp_stream)
-}
-
-/// Validate SFTP settings before opening any network connection.
-fn validate_config(config: &SftpConfig) -> Result<(), String> {
-    if config.host.trim().is_empty() || config.username.trim().is_empty() {
-        return Err("SFTP host or username cannot be empty".to_string());
-    }
-
-    if config.password.is_none() && config.private_key.is_none() {
-        return Err("SFTP password or private_key is required".to_string());
-    }
-
-    if config
-        .private_key
-        .as_deref()
-        .is_some_and(|private_key| private_key.trim().is_empty())
-    {
-        return Err("SFTP private_key cannot be empty".to_string());
-    }
-
-    if config.passphrase.is_some() && config.private_key.is_none() {
-        return Err("SFTP passphrase requires private_key authentication".to_string());
-    }
-
-    Ok(())
-}
-
-/// Authenticate the SSH session with the configured SFTP auth method.
-fn authenticate(config: &SftpConfig, session: &mut Session) -> Result<(), String> {
-    match auth_method(config)? {
-        SftpAuthMethod::Password => authenticate_with_password(config, session),
-        SftpAuthMethod::PrivateKey => authenticate_with_private_key(config, session),
-    }
-}
-
-/// Choose the authentication method from the parsed config.
-fn auth_method(config: &SftpConfig) -> Result<SftpAuthMethod, String> {
-    if config.password.is_some() {
-        return Ok(SftpAuthMethod::Password);
-    }
-
-    if config.private_key.is_some() {
-        return Ok(SftpAuthMethod::PrivateKey);
-    }
-
-    Err("SFTP password or private_key is required".to_string())
-}
-
-/// Authenticate with the configured password.
-fn authenticate_with_password(config: &SftpConfig, session: &mut Session) -> Result<(), String> {
-    let password = config
-        .password
-        .as_ref()
-        .ok_or_else(|| "SFTP password is required for password authentication".to_string())?;
-
-    session
-        .userauth_password(&config.username, password)
-        .map_err(|error| format!("Failed to authenticate to SFTP server with password: {error}"))?;
-
-    if session.authenticated() {
-        info!(pack_tag = %tag(LogTag::Sftp), "Authenticated with password");
-        return Ok(());
-    }
-
-    Err("Failed to authenticate to SFTP server with password".to_string())
-}
-
-/// Authenticate with the configured private key and optional passphrase.
-fn authenticate_with_private_key(config: &SftpConfig, session: &mut Session) -> Result<(), String> {
-    let private_key_path = private_key_path(config)?;
-    if !private_key_path.is_file() {
-        return Err(format!(
-            "SFTP private_key file does not exist or is not a file: {}",
-            private_key_path.display()
-        ));
-    }
-
-    session
-        .userauth_pubkey_file(
-            &config.username,
-            None,
-            &private_key_path,
-            config.passphrase.as_deref(),
-        )
-        .map_err(|error| {
-            format!(
-                "Failed to authenticate to SFTP server with private_key {}: {error}",
-                private_key_path.display()
-            )
-        })?;
-
-    if session.authenticated() {
-        info!(
-            pack_tag = %tag(LogTag::Sftp),
-            "Authenticated with private_key"
-        );
-        return Ok(());
-    }
-
-    Err(format!(
-        "Failed to authenticate to SFTP server with private_key {}",
-        private_key_path.display()
-    ))
-}
-
-/// Return the configured private key path with a leading `~` expanded.
-fn private_key_path(config: &SftpConfig) -> Result<PathBuf, String> {
-    let private_key = config
-        .private_key
-        .as_deref()
-        .ok_or_else(|| "SFTP private_key is required for private_key authentication".to_string())?;
-
-    Ok(PathBuf::from(expand_tilde(private_key)))
 }
 
 /// Copy bytes with a large buffer to reduce costly libssh2 SFTP write calls.
@@ -415,8 +417,9 @@ mod tests {
     #[test]
     fn auth_method_uses_password_when_password_is_configured() {
         let config = valid_config();
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert_eq!(auth_method(&config).unwrap(), SftpAuthMethod::Password);
+        assert_eq!(sftp.auth_method().unwrap(), SftpAuthMethod::Password);
     }
 
     #[test]
@@ -424,23 +427,26 @@ mod tests {
         let mut config = valid_config();
         config.password = None;
         config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert_eq!(auth_method(&config).unwrap(), SftpAuthMethod::PrivateKey);
+        assert_eq!(sftp.auth_method().unwrap(), SftpAuthMethod::PrivateKey);
     }
 
     #[test]
     fn auth_method_prefers_password_when_both_are_configured() {
         let mut config = valid_config();
         config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert_eq!(auth_method(&config).unwrap(), SftpAuthMethod::Password);
+        assert_eq!(sftp.auth_method().unwrap(), SftpAuthMethod::Password);
     }
 
     #[test]
     fn validate_config_accepts_password_auth() {
         let config = valid_config();
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_ok());
+        assert!(sftp.validate_config().is_ok());
     }
 
     #[test]
@@ -448,16 +454,18 @@ mod tests {
         let mut config = valid_config();
         config.password = None;
         config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_ok());
+        assert!(sftp.validate_config().is_ok());
     }
 
     #[test]
     fn validate_config_rejects_empty_required_fields() {
         let mut config = valid_config();
         config.host = "".to_string();
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_err());
+        assert!(sftp.validate_config().is_err());
     }
 
     #[test]
@@ -465,8 +473,9 @@ mod tests {
         let mut config = valid_config();
         config.password = None;
         config.private_key = None;
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_err());
+        assert!(sftp.validate_config().is_err());
     }
 
     #[test]
@@ -474,16 +483,18 @@ mod tests {
         let mut config = valid_config();
         config.password = None;
         config.private_key = Some("  ".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_err());
+        assert!(sftp.validate_config().is_err());
     }
 
     #[test]
     fn validate_config_rejects_passphrase_without_private_key() {
         let mut config = valid_config();
         config.passphrase = Some("secret".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
-        assert!(validate_config(&config).is_err());
+        assert!(sftp.validate_config().is_err());
     }
 
     #[test]
@@ -491,10 +502,11 @@ mod tests {
         let mut config = valid_config();
         config.password = None;
         config.private_key = Some("~/.ssh/id_rsa".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
         let home = std::env::var("HOME").unwrap();
 
         assert_eq!(
-            private_key_path(&config).unwrap(),
+            sftp.private_key_path().unwrap(),
             std::path::PathBuf::from(format!("{home}/.ssh/id_rsa"))
         );
     }
@@ -504,9 +516,10 @@ mod tests {
         let mut config = valid_config();
         config.password = None;
         config.private_key = Some("/tmp/id_rsa".to_string());
+        let sftp = Sftp::new(&config, Path::new("backup.tar.gz"));
 
         assert_eq!(
-            private_key_path(&config).unwrap(),
+            sftp.private_key_path().unwrap(),
             std::path::PathBuf::from("/tmp/id_rsa")
         );
     }
