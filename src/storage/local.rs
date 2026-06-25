@@ -1,6 +1,6 @@
 use crate::logging::{LogTag, tag};
 use crate::paths;
-use crate::storage::{artifact_file_key, validate_file_key};
+use crate::storage::{StorageRunResult, artifact_file_key, delete_old_backups, validate_file_key};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -33,7 +33,7 @@ impl<'a> Local<'a> {
     }
 
     /// Store the source path in the configured local destination.
-    pub fn perform(&self) -> Result<String, String> {
+    pub fn perform(&self, delete_after_upload: &[String]) -> Result<StorageRunResult, String> {
         if self.config.path.trim().is_empty() {
             return Err("Local storage path cannot be empty".to_string());
         }
@@ -58,7 +58,12 @@ impl<'a> Local<'a> {
             "Store succeeded: {}",
             destination_path.display()
         );
-        artifact_file_key(self.source_path, "Local storage")
+
+        let deleted_file_keys = delete_old_backups(delete_after_upload, |file_key| {
+            delete_file(self.config, file_key)
+        });
+
+        Ok(StorageRunResult { deleted_file_keys })
     }
 
     /// Build the final destination path by joining configured root and source name.
@@ -68,7 +73,7 @@ impl<'a> Local<'a> {
     }
 }
 
-pub fn delete(config: &LocalConfig, file_key: &str) -> Result<(), String> {
+pub(crate) fn delete_file(config: &LocalConfig, file_key: &str) -> Result<(), String> {
     validate_file_key(file_key)?;
 
     let path = root_directory(&config.path).join(file_key);
@@ -143,7 +148,7 @@ mod tests {
         let config = make_config(&destination_directory.path().to_string_lossy());
         let local = Local::new(&config, source_directory.path());
 
-        let result = local.perform();
+        let result = local.perform(&[]);
 
         assert!(result.is_ok());
         let copied_file = destination_directory
@@ -166,7 +171,7 @@ mod tests {
         let config = make_config(&destination_directory.path().to_string_lossy());
         let local = Local::new(&config, source_directory.path());
 
-        let result = local.perform();
+        let result = local.perform(&[]);
 
         assert!(result.is_ok());
         let copied_file = destination_directory
@@ -186,7 +191,7 @@ mod tests {
         let config = make_config(&destination_directory.path().to_string_lossy());
         let local = Local::new(&config, &source_file);
 
-        let result = local.perform();
+        let result = local.perform(&[]);
 
         assert!(result.is_ok());
         let copied_file = destination_directory.path().join("dump.sql");
@@ -202,7 +207,7 @@ mod tests {
         let config = make_config("");
         let local = Local::new(&config, source_directory.path());
 
-        let result = local.perform();
+        let result = local.perform(&[]);
 
         assert!(result.is_err());
     }
@@ -212,7 +217,7 @@ mod tests {
         let config = make_config("/tmp/pack-test");
         let local = Local::new(&config, Path::new("/path/that/does/not/exist"));
 
-        let result = local.perform();
+        let result = local.perform(&[]);
 
         assert!(result.is_err());
     }
@@ -226,9 +231,26 @@ mod tests {
         let config = make_config(&destination_directory.path().to_string_lossy());
         let local = Local::new(&config, &source_file);
 
-        let file_key = local.perform().unwrap();
+        let result = local.perform(&[]).unwrap();
 
-        assert_eq!(file_key, "backup.tar.gz");
+        assert!(result.deleted_file_keys.is_empty());
+    }
+
+    #[test]
+    fn perform_deletes_old_backups_after_copy() {
+        let source_directory = tempfile::tempdir().unwrap();
+        let destination_directory = tempfile::tempdir().unwrap();
+        let source_file = source_directory.path().join("backup.tar.gz");
+        let old_backup_file = destination_directory.path().join("old.tar.gz");
+        std::fs::write(&source_file, "backup").unwrap();
+        std::fs::write(&old_backup_file, "old backup").unwrap();
+        let config = make_config(&destination_directory.path().to_string_lossy());
+        let local = Local::new(&config, &source_file);
+
+        let result = local.perform(&["old.tar.gz".to_string()]).unwrap();
+
+        assert_eq!(result.deleted_file_keys, vec!["old.tar.gz"]);
+        assert!(!old_backup_file.exists());
     }
 
     #[test]
@@ -238,7 +260,7 @@ mod tests {
         std::fs::write(&backup_file, "backup").unwrap();
         let config = make_config(&destination_directory.path().to_string_lossy());
 
-        delete(&config, "backup.tar.gz").unwrap();
+        delete_file(&config, "backup.tar.gz").unwrap();
 
         assert!(!backup_file.exists());
     }
@@ -248,7 +270,7 @@ mod tests {
         let destination_directory = tempfile::tempdir().unwrap();
         let config = make_config(&destination_directory.path().to_string_lossy());
 
-        let result = delete(&config, "../backup.tar.gz");
+        let result = delete_file(&config, "../backup.tar.gz");
 
         assert!(result.is_err());
     }

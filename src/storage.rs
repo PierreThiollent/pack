@@ -2,6 +2,7 @@ pub mod ftp;
 pub mod local;
 pub mod sftp;
 
+use crate::logging::{LogTag, tag};
 use crate::storage::ftp::FtpConfig;
 use crate::storage::local::LocalConfig;
 use crate::storage::sftp::SftpConfig;
@@ -9,6 +10,7 @@ use serde::Deserialize;
 use std::net::{SocketAddr, ToSocketAddrs};
 use std::path::Path;
 use std::time::Duration;
+use tracing::{info, warn};
 
 /// Configuration for a storage — the `type` field determines which variant is used.
 #[derive(Debug, Deserialize)]
@@ -24,34 +26,59 @@ pub enum StorageConfig {
     Sftp(SftpConfig),
 }
 
+pub struct StorageRunResult {
+    pub deleted_file_keys: Vec<String>,
+}
+
 /// Store a backup artifact based on the configuration.
 ///
 /// Dispatches to the correct storage implementation (local, FTP, SFTP, …).
-pub fn run(config: &StorageConfig, source_path: &Path) -> Result<String, String> {
+pub fn run(
+    config: &StorageConfig,
+    source_path: &Path,
+    delete_after_upload: &[String],
+) -> Result<StorageRunResult, String> {
     match config {
         StorageConfig::Local(local_config) => {
             let local = local::Local::new(local_config, source_path);
-            local.perform()
+            local.perform(delete_after_upload)
         }
         StorageConfig::Ftp(ftp_config) => {
             let ftp = ftp::Ftp::new(ftp_config, source_path);
-            ftp.perform()?;
-            artifact_file_key(source_path, "FTP")
+            ftp.perform(delete_after_upload)
         }
         StorageConfig::Sftp(sftp_config) => {
             let sftp = sftp::Sftp::new(sftp_config, source_path);
-            sftp.perform()?;
-            artifact_file_key(source_path, "SFTP")
+            sftp.perform(delete_after_upload)
         }
     }
 }
 
-pub fn delete(config: &StorageConfig, file_key: &str) -> Result<(), String> {
-    match config {
-        StorageConfig::Local(local_config) => local::delete(local_config, file_key),
-        StorageConfig::Ftp(ftp_config) => ftp::delete(ftp_config, file_key),
-        StorageConfig::Sftp(sftp_config) => sftp::delete(sftp_config, file_key),
+pub(crate) fn delete_old_backups<F>(file_keys: &[String], mut delete_one: F) -> Vec<String>
+where
+    F: FnMut(&str) -> Result<(), String>,
+{
+    let mut deleted_file_keys = Vec::new();
+
+    for file_key in file_keys {
+        match delete_one(file_key) {
+            Ok(()) => {
+                info!(
+                    pack_tag = %tag(LogTag::Cycler),
+                    "Removed old backup: {file_key}"
+                );
+                deleted_file_keys.push(file_key.clone());
+            }
+            Err(error) => {
+                warn!(
+                    pack_tag = %tag(LogTag::Cycler),
+                    "Failed to delete old backup {file_key}: {error}"
+                );
+            }
+        }
     }
+
+    deleted_file_keys
 }
 
 impl StorageConfig {
@@ -257,7 +284,7 @@ mod tests {
             keep: 0,
         });
 
-        let result = run(&config, source_directory.path());
+        let result = run(&config, source_directory.path(), &[]);
 
         assert!(result.is_ok());
     }
@@ -270,7 +297,7 @@ mod tests {
             keep: 0,
         });
 
-        let result = run(&config, source_directory.path());
+        let result = run(&config, source_directory.path(), &[]);
 
         assert!(result.is_err());
     }
@@ -286,9 +313,24 @@ mod tests {
             keep: 2,
         });
 
-        let file_key = run(&config, &source_file).unwrap();
+        let result = run(&config, &source_file, &[]).unwrap();
 
-        assert_eq!(file_key, "backup.tar.gz");
+        assert!(result.deleted_file_keys.is_empty());
+    }
+
+    #[test]
+    fn delete_old_backups_returns_successfully_deleted_keys() {
+        let file_keys = vec!["old.tar.gz".to_string(), "missing.tar.gz".to_string()];
+
+        let deleted_file_keys = delete_old_backups(&file_keys, |file_key| {
+            if file_key == "old.tar.gz" {
+                Ok(())
+            } else {
+                Err("not found".to_string())
+            }
+        });
+
+        assert_eq!(deleted_file_keys, vec!["old.tar.gz"]);
     }
 
     #[test]

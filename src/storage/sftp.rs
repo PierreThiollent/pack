@@ -1,8 +1,8 @@
 use crate::logging::{LogTag, tag};
 use crate::paths::expand_tilde;
 use crate::storage::{
-    remote_address, remote_directories, remote_file_path, remote_file_path_from_key,
-    socket_address, timeout_duration,
+    StorageRunResult, delete_old_backups, remote_address, remote_directories, remote_file_path,
+    remote_file_path_from_key, socket_address, timeout_duration,
 };
 use serde::Deserialize;
 use ssh2::{Session, Sftp as Ssh2Sftp};
@@ -67,7 +67,7 @@ impl<'a> Sftp<'a> {
     }
 
     /// Connect, authenticate, create remote directories and upload the artifact.
-    pub fn perform(&self) -> Result<(), String> {
+    pub fn perform(&self, delete_after_upload: &[String]) -> Result<StorageRunResult, String> {
         validate_config(self.config)?;
 
         let mut session = connect_ssh(self.config)?;
@@ -76,9 +76,14 @@ impl<'a> Sftp<'a> {
         self.ensure_remote_directory(&sftp_session)?;
         let remote_path = self.remote_path()?;
         self.upload(&sftp_session, &remote_path)?;
-
         info!(pack_tag = %tag(LogTag::Sftp), "Store succeeded: {remote_path}");
-        Ok(())
+
+        let deleted_file_keys = delete_old_backups(delete_after_upload, |file_key| {
+            let remote_path = remote_file_path_from_key(&self.config.path, file_key)?;
+            delete_with_session(&sftp_session, &remote_path)
+        });
+
+        Ok(StorageRunResult { deleted_file_keys })
     }
 
     /// Create the configured remote directory and its parents when missing.
@@ -135,17 +140,6 @@ impl<'a> Sftp<'a> {
     fn remote_path(&self) -> Result<String, String> {
         remote_file_path(&self.config.path, self.source_path, "SFTP")
     }
-}
-
-pub fn delete(config: &SftpConfig, file_key: &str) -> Result<(), String> {
-    let remote_path = remote_file_path_from_key(&config.path, file_key)?;
-    validate_config(config)?;
-
-    let mut session = connect_ssh(config)?;
-    authenticate(config, &mut session)?;
-    let sftp_session = open_sftp_subsystem(&session)?;
-
-    delete_with_session(&sftp_session, &remote_path)
 }
 
 fn delete_with_session(sftp_session: &Ssh2Sftp, remote_path: &str) -> Result<(), String> {
@@ -551,14 +545,5 @@ mod tests {
 
         assert_eq!(bytes_copied, 0);
         assert!(writer.is_empty());
-    }
-
-    #[test]
-    fn delete_rejects_unsafe_file_key_before_connecting() {
-        let config = valid_config();
-
-        let result = delete(&config, "../backup.tar.gz");
-
-        assert!(result.is_err());
     }
 }
