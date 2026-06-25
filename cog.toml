@@ -1,0 +1,18 @@
+#:schema https://docs.cocogitto.io/cog-schema.json
+
+# Only check commits from the latest SemVer tag for repository-wide checks.
+# The commit-msg hook below validates the current commit message immediately.
+from_latest_tag = true
+ignore_merge_commits = true
+ignore_fixup_commits = true
+tag_prefix = "v"
+
+[changelog]
+path = "CHANGELOG.md"
+template = "remote"
+remote = "github.com"
+owner = "PierreThiollent"
+repository = "pack"
+
+[git_hooks.commit-msg]
+path = ".githooks/commit-msg"
