@@ -96,6 +96,7 @@ models:
       local:
         type: local
         path: ~/backups/pack
+        keep: 7
 ```
 
 Run the backup:
@@ -190,6 +191,7 @@ storages:
   local:
     type: local
     path: ~/backups/pack
+    keep: 7
 ```
 
 The final `.tar.gz` artifact is copied to the configured directory.
@@ -208,6 +210,7 @@ storages:
     password: secret
     explicit_tls: false
     no_check_certificate: false
+    keep: 7
 ```
 
 Required fields: `host`, `username`, `password`.
@@ -219,6 +222,7 @@ Defaults:
 - `path`: `/` — often the FTP user's virtual root directory, not the server filesystem root
 - `explicit_tls`: `false`
 - `no_check_certificate`: `false`
+- `keep`: `0`
 
 Notes:
 
@@ -240,6 +244,7 @@ storages:
     path: backups/my_site
     username: pack
     password: secret
+    keep: 7
 ```
 
 Private key authentication:
@@ -255,6 +260,7 @@ storages:
     username: pack
     private_key: ~/.ssh/id_rsa
     passphrase: optional-passphrase
+    keep: 7
 ```
 
 Required fields: `host`, `username`, and at least one authentication method: `password` or `private_key`.
@@ -264,10 +270,37 @@ Defaults:
 - `port`: `22`
 - `timeout`: `300` seconds
 - `path`: `/` — the server root from the SFTP session point of view; on shared hosting this may not be writable
+- `keep`: `0`
 
 `passphrase` is only valid with `private_key` authentication.
 
 For SFTP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
+
+## Retention / cycler
+
+Each storage can define a `keep` value:
+
+```yml
+storages:
+  local:
+    type: local
+    path: ~/backups/pack
+    keep: 7
+```
+
+`keep: N` keeps the latest `N` backups known by that storage and removes older ones after a successful upload.
+
+`keep: 0` means unlimited retention: backups are never removed automatically. This is the default when `keep` is omitted.
+
+`pack` stores retention state locally in:
+
+```text
+~/.pack/cycler/{model}_{storage}.json
+```
+
+The cycler only removes backups that are present in this state file. Files that already exist in a storage but are not listed in the cycler state are left untouched.
+
+If deleting an old backup fails, the backup run still succeeds. `pack` logs a warning and keeps that backup in the cycler state so it can retry deletion on a future run.
 
 ## Logs
 
