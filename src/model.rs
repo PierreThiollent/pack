@@ -82,8 +82,7 @@ fn run_model_storages(model_name: &str, model: &Model, source_path: &Path) -> Re
             pack_tag = %tag(LogTag::Storage(storage_name)),
             "Uploading backup"
         );
-        let file_key = storage::run(storage_config, source_path)?;
-        apply_storage_retention(model_name, storage_name, storage_config, &file_key)?;
+        run_storage_with_retention(model_name, storage_name, storage_config, source_path)?;
         info!(
             pack_tag = %tag(LogTag::Storage(storage_name)),
             "Storage completed"
@@ -92,56 +91,29 @@ fn run_model_storages(model_name: &str, model: &Model, source_path: &Path) -> Re
     Ok(())
 }
 
-/// Record the uploaded artifact in the cycler state and delete old backups beyond `keep`.
-fn apply_storage_retention(
+/// Store one artifact, then update the cycler state with the deletions that succeeded.
+fn run_storage_with_retention(
     model_name: &str,
     storage_name: &str,
     storage_config: &storage::StorageConfig,
-    file_key: &str,
+    source_path: &Path,
 ) -> Result<(), String> {
+    let file_key = storage::artifact_file_key(source_path, storage_name)?;
     let state_path = cycler::default_state_path(model_name, storage_name);
     let mut cycler = Cycler::load_from_path(&state_path)?;
 
     // Record the new backup first, then compute which older backups exceed `keep`.
-    // The candidates are not removed from the state yet: we only update the state after
-    // the corresponding storage deletion has actually succeeded.
-    cycler.add(file_key);
+    // The candidates are passed to the storage so network storages can purge them
+    // with the same connection as the upload.
+    cycler.add(&file_key);
     let candidate_file_keys = cycler.prune_candidates(storage_config.keep());
-    let mut deleted_file_keys = Vec::new();
-
-    for candidate_file_key in candidate_file_keys {
-        if delete_old_backup(storage_config, &candidate_file_key) {
-            deleted_file_keys.push(candidate_file_key);
-        }
-    }
+    let result = storage::run(storage_config, source_path, &candidate_file_keys)?;
 
     // Keep failed delete candidates in the cycler state so future runs can retry them.
-    cycler.remove_file_keys(&deleted_file_keys);
+    cycler.remove_file_keys(&result.deleted_file_keys);
     cycler.save_to_path(&state_path)?;
 
     Ok(())
-}
-
-/// Delete one old backup selected by retention.
-///
-/// Cleanup errors are warning-only: a failed purge must not fail an otherwise successful backup run.
-fn delete_old_backup(storage_config: &storage::StorageConfig, file_key: &str) -> bool {
-    match storage::delete(storage_config, file_key) {
-        Ok(()) => {
-            info!(
-                pack_tag = %tag(LogTag::Cycler),
-                "Removed old backup: {file_key}"
-            );
-            true
-        }
-        Err(error) => {
-            warn!(
-                pack_tag = %tag(LogTag::Cycler),
-                "Failed to delete old backup {file_key}: {error}"
-            );
-            false
-        }
-    }
 }
 
 /// Create a unique temporary directory for one `perform` run.

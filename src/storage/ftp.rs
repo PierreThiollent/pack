@@ -1,7 +1,7 @@
 use crate::logging::{LogTag, tag};
 use crate::storage::{
-    remote_address, remote_directories, remote_file_path, remote_file_path_from_key,
-    socket_address, timeout_duration,
+    StorageRunResult, delete_old_backups, remote_address, remote_directories, remote_file_path,
+    remote_file_path_from_key, socket_address, timeout_duration,
 };
 use serde::Deserialize;
 use std::fs::File;
@@ -54,7 +54,7 @@ impl<'a> Ftp<'a> {
     }
 
     /// Connect, authenticate, create remote directories and upload the artifact.
-    pub fn perform(&self) -> Result<(), String> {
+    pub fn perform(&self, delete_after_upload: &[String]) -> Result<StorageRunResult, String> {
         validate_config(self.config)?;
 
         if self.config.explicit_tls {
@@ -65,7 +65,7 @@ impl<'a> Ftp<'a> {
                 self.config.path
             );
             let mut ftp_stream = connect_explicit_tls(self.config)?;
-            self.perform_with_stream(&mut ftp_stream)
+            self.perform_with_stream(&mut ftp_stream, delete_after_upload)
         } else {
             info!(
                 pack_tag = %tag(LogTag::Ftp),
@@ -74,7 +74,7 @@ impl<'a> Ftp<'a> {
                 self.config.path
             );
             let mut ftp_stream = connect_plain(self.config)?;
-            self.perform_with_stream(&mut ftp_stream)
+            self.perform_with_stream(&mut ftp_stream, delete_after_upload)
         }
     }
 
@@ -82,16 +82,23 @@ impl<'a> Ftp<'a> {
     fn perform_with_stream<T: TlsStream>(
         &self,
         ftp_stream: &mut ImplFtpStream<T>,
-    ) -> Result<(), String> {
+        delete_after_upload: &[String],
+    ) -> Result<StorageRunResult, String> {
         self.ensure_remote_directory(ftp_stream)?;
         let remote_path = self.remote_path()?;
         self.upload(ftp_stream, &remote_path)?;
+        info!(pack_tag = %tag(LogTag::Ftp), "Store succeeded: {remote_path}");
+
+        let deleted_file_keys = delete_old_backups(delete_after_upload, |file_key| {
+            let remote_path = remote_file_path_from_key(&self.config.path, file_key)?;
+            delete_remote_file_with_stream(ftp_stream, &remote_path)
+        });
+
         ftp_stream
             .quit()
             .map_err(|error| format!("Failed to close FTP connection: {error}"))?;
 
-        info!(pack_tag = %tag(LogTag::Ftp), "Store succeeded: {remote_path}");
-        Ok(())
+        Ok(StorageRunResult { deleted_file_keys })
     }
 
     /// Create the configured remote directory and its parents when missing.
@@ -159,29 +166,13 @@ fn default_path() -> String {
     "/".to_string()
 }
 
-pub fn delete(config: &FtpConfig, file_key: &str) -> Result<(), String> {
-    let remote_path = remote_file_path_from_key(&config.path, file_key)?;
-    validate_config(config)?;
-
-    if config.explicit_tls {
-        let mut ftp_stream = connect_explicit_tls(config)?;
-        delete_with_stream(&mut ftp_stream, &remote_path)
-    } else {
-        let mut ftp_stream = connect_plain(config)?;
-        delete_with_stream(&mut ftp_stream, &remote_path)
-    }
-}
-
-fn delete_with_stream<T: TlsStream>(
+fn delete_remote_file_with_stream<T: TlsStream>(
     ftp_stream: &mut ImplFtpStream<T>,
     remote_path: &str,
 ) -> Result<(), String> {
     ftp_stream
         .rm(remote_path)
         .map_err(|error| format!("Failed to delete FTP file {remote_path}: {error}"))?;
-    ftp_stream
-        .quit()
-        .map_err(|error| format!("Failed to close FTP connection: {error}"))?;
 
     Ok(())
 }
@@ -295,14 +286,5 @@ mod tests {
             ftp.remote_path().unwrap(),
             "/backups/my_app-20260616-120000.tar.gz"
         );
-    }
-
-    #[test]
-    fn delete_rejects_unsafe_file_key_before_connecting() {
-        let config = valid_config();
-
-        let result = delete(&config, "../backup.tar.gz");
-
-        assert!(result.is_err());
     }
 }
