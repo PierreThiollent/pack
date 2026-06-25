@@ -9,9 +9,34 @@ permissions:
   contents: write
 
 jobs:
+  changelog:
+    name: Generate release changelog
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Cocogitto
+        uses: cocogitto/cocogitto-action@v3
+        with:
+          check: false
+
+      - name: Generate release changelog
+        run: cog changelog --at ${{ github.ref_name }} > RELEASE_CHANGELOG.md
+
+      - name: Upload release changelog artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-changelog
+          path: RELEASE_CHANGELOG.md
+
   release:
     name: Release (${{ matrix.asset_name }})
     runs-on: ${{ matrix.os }}
+    needs: changelog
 
     strategy:
       fail-fast: false
@@ -27,6 +52,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -48,7 +75,13 @@ jobs:
       - name: Package release asset
         run: tar -czf "${{ matrix.asset_name }}" -C target/release pack
 
+      - name: Download release changelog artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: release-changelog
+
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
+          body_path: RELEASE_CHANGELOG.md
           files: ${{ matrix.asset_name }}
