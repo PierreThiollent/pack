@@ -81,6 +81,9 @@ models:
         username: backup
         password: secret
 
+    schedule:
+      cron: "5 4 * * sun"
+
     archive:
       includes:
         - /var/www/my_site/uploads
@@ -99,16 +102,23 @@ models:
         keep: 7
 ```
 
-Run the backup:
+Run the backup once:
 
 ```bash
 pack perform
+```
+
+Run the scheduler in the foreground:
+
+```bash
+pack run
 ```
 
 Or use an explicit config path:
 
 ```bash
 pack perform -c /path/to/pack.yml
+pack run -c /path/to/pack.yml
 ```
 
 ## Configuration
@@ -166,6 +176,37 @@ Files and directories listed in `includes` are added to an intermediate tar arch
 `excludes` lets you skip files or directories inside the configured includes. Paths support `~` expansion. When an excluded path is a directory, all files and directories below it are skipped too.
 
 An excluded path does not have to exist: if it matches nothing, it is simply ignored.
+
+### Schedule
+
+A model can define a `schedule` block to run automatically with `pack run`:
+
+```yml
+models:
+  my_site:
+    schedule:
+      cron: "5 4 * * sun"
+```
+
+Cron expressions use the common 5-field syntax:
+
+```text
+minute hour day-of-month month day-of-week
+```
+
+For example, `5 4 * * sun` runs every Sunday at 04:05.
+
+`pack` also accepts the 6-field format used internally by `tokio-cron-scheduler`:
+
+```text
+second minute hour day-of-month month day-of-week
+```
+
+If a scheduled backup is still running when the next cron tick happens, the new run is skipped to avoid concurrent backups.
+
+`pack run` keeps running after a scheduled backup failure. The error is logged and the next cron tick will try again.
+
+Interval schedules such as `every: 1day` / `at: 04:05` are planned but not implemented yet.
 
 ### Compression
 
@@ -301,6 +342,24 @@ storages:
 The cycler only removes backups that are present in this state file. Files that already exist in a storage but are not listed in the cycler state are left untouched.
 
 If deleting an old backup fails, the backup run still succeeds. `pack` logs a warning and keeps that backup in the cycler state so it can retry deletion on a future run.
+
+## Commands
+
+### `pack perform`
+
+Runs all configured models once, then exits.
+
+If a backup fails, the command exits with an error code.
+
+### `pack run`
+
+Runs the scheduler in the foreground.
+
+Only models with a `schedule` block are registered. When a scheduled job fails, the error is logged and the scheduler keeps running.
+
+Stop it with `Ctrl+C`.
+
+`pack start` for background daemon mode is planned for a future version.
 
 ## Logs
 

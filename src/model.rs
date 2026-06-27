@@ -19,6 +19,37 @@ use tracing::{info, warn};
 pub fn run_all(config: &Config) -> Result<(), String> {
     info!(pack_tag = %tag(LogTag::Run), "Starting backup run");
 
+    run_in_temporary_directory(
+        config,
+        |run_directory| run_models(config, run_directory),
+        "Backup run completed",
+    )
+}
+
+/// Run one backup model from the configuration.
+pub fn run_one(config: &Config, model_name: &str) -> Result<(), String> {
+    info!(
+        pack_tag = %tag(LogTag::Run),
+        "Starting backup run for model {model_name}"
+    );
+
+    let model = config
+        .models
+        .get(model_name)
+        .ok_or_else(|| format!("Model {model_name} not found"))?;
+
+    run_in_temporary_directory(
+        config,
+        |run_directory| run_model_pipeline(model_name, model, run_directory),
+        "Backup run completed",
+    )
+}
+
+fn run_in_temporary_directory(
+    config: &Config,
+    run: impl FnOnce(&Path) -> Result<(), String>,
+    success_message: &str,
+) -> Result<(), String> {
     let run_directory = create_run_directory(config.workdir.as_deref())?;
     info!(
         pack_tag = %tag(LogTag::Run),
@@ -26,7 +57,7 @@ pub fn run_all(config: &Config) -> Result<(), String> {
         run_directory.path().display()
     );
 
-    let result = run_models(config, run_directory.path());
+    let result = run(run_directory.path());
 
     let run_directory_path = run_directory.path().to_path_buf();
     if let Err(error) = run_directory.close() {
@@ -37,7 +68,7 @@ pub fn run_all(config: &Config) -> Result<(), String> {
     }
 
     if result.is_ok() {
-        info!(pack_tag = %tag(LogTag::Run), "Backup run completed");
+        info!(pack_tag = %tag(LogTag::Run), "{success_message}");
     }
 
     result
@@ -45,16 +76,22 @@ pub fn run_all(config: &Config) -> Result<(), String> {
 
 fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
     for (name, model) in &config.models {
-        info!(pack_tag = %tag(LogTag::Model(name)), "Running model");
-
-        let dump_directory = create_dump_directory(run_directory, name)?;
-        run_model_databases(model, &dump_directory)?;
-        archive::run(model.archive.as_ref(), &dump_directory)?;
-        let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory, name)?;
-        run_model_storages(name, model, &artifact_path)?;
-
-        info!(pack_tag = %tag(LogTag::Model(name)), "Model completed");
+        run_model_pipeline(name, model, run_directory)?;
     }
+
+    Ok(())
+}
+
+fn run_model_pipeline(name: &str, model: &Model, run_directory: &Path) -> Result<(), String> {
+    info!(pack_tag = %tag(LogTag::Model(name)), "Running model");
+
+    let dump_directory = create_dump_directory(run_directory, name)?;
+    run_model_databases(model, &dump_directory)?;
+    archive::run(model.archive.as_ref(), &dump_directory)?;
+    let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory, name)?;
+    run_model_storages(name, model, &artifact_path)?;
+
+    info!(pack_tag = %tag(LogTag::Model(name)), "Model completed");
 
     Ok(())
 }
@@ -169,6 +206,7 @@ mod tests {
         models.insert(
             "my_app".to_string(),
             Model {
+                schedule: None,
                 databases: HashMap::new(),
                 storages: HashMap::new(),
                 archive: None,
@@ -197,6 +235,28 @@ mod tests {
         assert_directory_is_empty(workdir.path());
 
         workdir.close().unwrap();
+    }
+
+    #[test]
+    fn run_one_creates_and_cleans_run_directory() {
+        let workdir = tempfile::tempdir().unwrap();
+        let config = make_config(Some(workdir.path().to_string_lossy().into_owned()));
+
+        let result = run_one(&config, "my_app");
+
+        assert!(result.is_ok());
+        assert_directory_is_empty(workdir.path());
+
+        workdir.close().unwrap();
+    }
+
+    #[test]
+    fn run_one_returns_error_when_model_does_not_exist() {
+        let config = make_config(None);
+
+        let result = run_one(&config, "missing_app");
+
+        assert_eq!(result, Err("Model missing_app not found".to_string()));
     }
 
     #[test]

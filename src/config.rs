@@ -3,6 +3,7 @@ use crate::compressor::CompressorConfig;
 use crate::database::DatabaseConfig;
 use crate::logging::{LogTag, tag};
 use crate::paths;
+use crate::scheduler::ScheduleConfig;
 use crate::storage::StorageConfig;
 use serde::Deserialize;
 use std::borrow::Cow;
@@ -22,6 +23,9 @@ pub struct Config {
 /// A model = one complete backup job
 #[derive(Debug, Deserialize)]
 pub struct Model {
+    /// Schedule used by long-running commands to run this model automatically.
+    pub schedule: Option<ScheduleConfig>,
+
     /// Databases to back up, keyed by name
     #[serde(default)]
     pub databases: HashMap<String, DatabaseConfig>,
@@ -618,6 +622,67 @@ models:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let model = config.models.get("my_app").unwrap();
         assert!(model.compress_with.is_none());
+    }
+
+    #[test]
+    fn parse_model_without_schedule() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let model = config.models.get("my_app").unwrap();
+
+        assert!(model.schedule.is_none());
+    }
+
+    #[test]
+    fn parse_model_with_every_schedule() {
+        let yaml = r#"
+models:
+  my_app:
+    schedule:
+      every: 1day
+      at: "04:05"
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let schedule = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .schedule
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(schedule.every.as_deref(), Some("1day"));
+        assert_eq!(schedule.at.as_deref(), Some("04:05"));
+        assert!(schedule.cron.is_none());
+    }
+
+    #[test]
+    fn parse_model_with_cron_schedule() {
+        let yaml = r#"
+models:
+  my_app:
+    schedule:
+      cron: "5 4 * * sun"
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let schedule = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .schedule
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(schedule.cron.as_deref(), Some("5 4 * * sun"));
+        assert!(schedule.every.is_none());
+        assert!(schedule.at.is_none());
     }
 
     #[test]

@@ -6,6 +6,7 @@ mod database;
 mod logging;
 mod model;
 mod paths;
+mod scheduler;
 mod storage;
 
 use clap::{CommandFactory, Parser, Subcommand};
@@ -28,30 +29,33 @@ struct Cli {
 enum Commands {
     /// Run backup jobs now
     Perform,
+    /// Run the scheduler in the foreground
+    Run,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() {
     logging::init();
 
     let cli = Cli::parse();
 
     match cli.command {
         Some(Commands::Perform) => {
-            let config_source = if cli.config.is_some() {
-                "custom path"
-            } else {
-                "default path"
-            };
-            let config_path = config::resolve_config_path(cli.config);
-            let config = config::load_config(&config_path);
-            info!(
-                pack_tag = %tag(LogTag::Config),
-                "Loaded config from {config_source}: {config_path}"
-            );
+            let config = load_cli_config(cli.config);
             if let Err(error) = model::run_all(&config) {
                 error!(
                     pack_tag = %tag(LogTag::Run),
                     "Failed to run backup: {error}"
+                );
+                std::process::exit(1);
+            }
+        }
+        Some(Commands::Run) => {
+            let config = load_cli_config(cli.config);
+            if let Err(error) = scheduler::run_foreground(config).await {
+                error!(
+                    pack_tag = %tag(LogTag::Run),
+                    "Scheduler failed: {error}"
                 );
                 std::process::exit(1);
             }
@@ -62,6 +66,22 @@ fn main() {
             println!();
         }
     }
+}
+
+fn load_cli_config(config_arg: Option<String>) -> config::Config {
+    let config_source = if config_arg.is_some() {
+        "custom path"
+    } else {
+        "default path"
+    };
+    let config_path = config::resolve_config_path(config_arg);
+    let config = config::load_config(&config_path);
+    info!(
+        pack_tag = %tag(LogTag::Config),
+        "Loaded config from {config_source}: {config_path}"
+    );
+
+    config
 }
 
 #[cfg(test)]
