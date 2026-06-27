@@ -1,5 +1,3 @@
-use flate2::read::GzDecoder;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -125,24 +123,34 @@ models:
         "Unexpected artifact name: {artifact_path:?}"
     );
 
-    let artifact_file = File::open(artifact_path).unwrap();
-    let decoder = GzDecoder::new(artifact_file);
-    let mut archive = tar::Archive::new(decoder);
-    let entry_paths: Vec<_> = archive
-        .entries()
-        .unwrap()
-        .map(|entry| entry.unwrap().path().unwrap().into_owned())
-        .collect();
+    let entry_paths = list_tgz_entries(artifact_path);
 
     assert!(
-        entry_paths
-            .iter()
-            .any(|path| path == Path::new("my_app/archive.tar")),
+        entry_paths.iter().any(|path| path == "my_app/archive.tar"),
         "Compressed artifact should contain the model archive.tar. Entries: {entry_paths:?}"
     );
 
     workspace.close().unwrap();
     clean_test_cycler_state();
+}
+
+fn list_tgz_entries(artifact_path: &Path) -> Vec<String> {
+    let output = Command::new("tar")
+        .args(["-tzf", &artifact_path.to_string_lossy()])
+        .output()
+        .expect("Failed to list compressed tar artifact");
+
+    assert!(
+        output.status.success(),
+        "tar should list compressed artifact. stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect()
 }
 
 fn tar_gz_files_in(directory: &Path) -> Vec<std::path::PathBuf> {
