@@ -2,6 +2,8 @@ workdir: /tmp
 
 models:
   mon_site:
+    schedule:
+      cron: "* * * * *"
     databases:
       ma_db_mysql:
         type: mysql
