@@ -1,5 +1,8 @@
 use std::fmt;
-use std::io::IsTerminal;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 use time::macros::format_description;
 use tracing::field::{Field, Visit};
 use tracing::{Event, Level, Subscriber};
@@ -7,6 +10,7 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::fmt::FmtContext;
 use tracing_subscriber::fmt::format::{FormatEvent, FormatFields, Writer};
 use tracing_subscriber::fmt::time::{FormatTime, LocalTime};
+use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::registry::LookupSpan;
 
 const TAG_FIELD_NAME: &str = "pack_tag";
@@ -65,7 +69,37 @@ struct EventFields {
     extra_fields: Vec<String>,
 }
 
-pub fn init() {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LogDestination {
+    ConsoleOnly,
+    ConsoleAndFile(PathBuf),
+    #[allow(dead_code)]
+    FileOnly(PathBuf),
+}
+
+/// Factory required by `tracing_subscriber`.
+///
+/// `tracing_subscriber` does not write directly to a single `Write` value. Instead,
+/// it asks a `MakeWriter` to create a concrete writer whenever it emits a log event.
+/// This factory keeps the shared logging destination and the optional opened file.
+#[derive(Clone)]
+struct LogWriterFactory {
+    destination: LogDestination,
+    file: Option<Arc<Mutex<File>>>,
+}
+
+/// Concrete writer used by `tracing_subscriber` for one log event.
+///
+/// It writes the already formatted log line to stderr, the log file, or both,
+/// depending on the selected `LogDestination`.
+struct LogWriter {
+    write_to_console: bool,
+    file: Option<Arc<Mutex<File>>>,
+}
+
+pub fn init(destination: LogDestination) -> Result<(), String> {
+    let colors_enabled = destination.writes_to_console() && detect_colors_enabled();
+    let writer_factory = LogWriterFactory::new(destination)?;
     let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
     let timer = LocalTime::new(format_description!(
         "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory]:[offset_minute]"
@@ -73,13 +107,120 @@ pub fn init() {
 
     tracing_subscriber::fmt()
         .with_env_filter(env_filter)
-        .event_format(CliFormatter::new(timer, detect_colors_enabled()))
-        .with_writer(std::io::stderr)
+        .event_format(CliFormatter::new(timer, colors_enabled))
+        .with_writer(writer_factory)
         .init();
+
+    Ok(())
 }
 
 pub fn tag(log_tag: LogTag<'_>) -> TagDisplay<'_> {
     TagDisplay { log_tag }
+}
+
+impl LogDestination {
+    fn writes_to_console(&self) -> bool {
+        matches!(
+            self,
+            LogDestination::ConsoleOnly | LogDestination::ConsoleAndFile(_)
+        )
+    }
+}
+
+impl LogWriterFactory {
+    fn new(destination: LogDestination) -> Result<Self, String> {
+        let file_path = match &destination {
+            LogDestination::ConsoleOnly => None,
+            LogDestination::ConsoleAndFile(path) | LogDestination::FileOnly(path) => Some(path),
+        };
+        let file = file_path
+            .map(|path| open_log_file(path).map(|file| Arc::new(Mutex::new(file))))
+            .transpose()?;
+
+        Ok(Self { destination, file })
+    }
+}
+
+/// Create the concrete writer that `tracing_subscriber` will use for an event.
+impl<'writer> MakeWriter<'writer> for LogWriterFactory {
+    type Writer = LogWriter;
+
+    fn make_writer(&'writer self) -> Self::Writer {
+        LogWriter {
+            write_to_console: self.destination.writes_to_console(),
+            file: self.file.clone(),
+        }
+    }
+}
+
+/// Implement the actual write/flush behavior for console and file outputs.
+impl Write for LogWriter {
+    fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+        if self.write_to_console {
+            io::stderr().write_all(buffer)?;
+        }
+
+        if let Some(file) = &self.file {
+            let mut file = file
+                .lock()
+                .map_err(|_| io::Error::other("log file lock poisoned"))?;
+            let plain_buffer = strip_ansi_codes(buffer);
+            file.write_all(&plain_buffer)?;
+        }
+
+        Ok(buffer.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        if self.write_to_console {
+            io::stderr().flush()?;
+        }
+
+        if let Some(file) = &self.file {
+            let mut file = file
+                .lock()
+                .map_err(|_| io::Error::other("log file lock poisoned"))?;
+            file.flush()?;
+        }
+
+        Ok(())
+    }
+}
+
+fn strip_ansi_codes(buffer: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(buffer.len());
+    let mut index = 0;
+
+    while index < buffer.len() {
+        if buffer[index] == 0x1b && buffer.get(index + 1) == Some(&b'[') {
+            index += 2;
+            while index < buffer.len() && !buffer[index].is_ascii_alphabetic() {
+                index += 1;
+            }
+            if index < buffer.len() {
+                index += 1;
+            }
+        } else {
+            result.push(buffer[index]);
+            index += 1;
+        }
+    }
+
+    result
+}
+
+fn open_log_file(path: &PathBuf) -> Result<File, String> {
+    if let Some(parent_directory) = path.parent() {
+        fs::create_dir_all(parent_directory).map_err(|error| {
+            format!("Failed to create log directory {parent_directory:?}: {error}")
+        })?;
+    }
+
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|error| format!("Failed to open log file {path:?}: {error}"))
 }
 
 impl<T> CliFormatter<T>
@@ -390,5 +531,22 @@ mod tests {
     #[test]
     fn force_color_wins_over_no_color() {
         assert!(should_enable_colors(false, Some("1"), Some("1")));
+    }
+
+    #[test]
+    fn console_and_file_writes_to_console() {
+        assert!(LogDestination::ConsoleAndFile(PathBuf::from("pack.log")).writes_to_console());
+    }
+
+    #[test]
+    fn file_only_does_not_write_to_console() {
+        assert!(!LogDestination::FileOnly(PathBuf::from("pack.log")).writes_to_console());
+    }
+
+    #[test]
+    fn strip_ansi_codes_removes_color_sequences() {
+        let buffer = b"\x1b[32m INFO\x1b[0m [Run] hello\n";
+
+        assert_eq!(strip_ansi_codes(buffer), b" INFO [Run] hello\n");
     }
 }
