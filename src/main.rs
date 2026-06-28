@@ -10,7 +10,7 @@ mod scheduler;
 mod storage;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use logging::{LogTag, tag};
+use logging::{LogDestination, LogTag, tag};
 use tracing::{error, info};
 
 /// pack 🎒 — Backup tool written in Rust 🦀
@@ -35,9 +35,12 @@ enum Commands {
 
 #[tokio::main]
 async fn main() {
-    logging::init();
-
     let cli = Cli::parse();
+    let log_destination = log_destination_for_command(cli.command.as_ref());
+    if let Err(error) = logging::init(log_destination) {
+        eprintln!("Failed to initialize logging: {error}");
+        std::process::exit(1);
+    }
 
     match cli.command {
         Some(Commands::Perform) => {
@@ -65,6 +68,13 @@ async fn main() {
             Cli::command().print_help().unwrap();
             println!();
         }
+    }
+}
+
+fn log_destination_for_command(command: Option<&Commands>) -> LogDestination {
+    match command {
+        Some(Commands::Run) => LogDestination::ConsoleAndFile(paths::pack_log_file_path()),
+        Some(Commands::Perform) | None => LogDestination::ConsoleOnly,
     }
 }
 

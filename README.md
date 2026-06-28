@@ -363,6 +363,18 @@ Stop it with `Ctrl+C`.
 
 ## Logs
 
+`pack` writes human-readable logs to the terminal.
+
+Log destinations depend on the command:
+
+| Command | Terminal | Log file |
+|---|---:|---:|
+| `pack perform` | yes | no |
+| `pack run` | yes | `~/.pack/pack.log` |
+| `pack start` | planned | planned |
+
+`pack run` creates `~/.pack/pack.log` automatically when needed. Terminal logs can be colored; file logs are written without ANSI color codes.
+
 Example output:
 
 ```text
