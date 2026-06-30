@@ -2,6 +2,8 @@ workdir: /tmp
 
 models:
   mon_site:
+    schedule:
+      cron: "* * * * *"
     databases:
       ma_db_mysql:
         type: mysql
@@ -13,12 +15,16 @@ models:
     archive:
       includes:
         - ~/Documents/myapp
+      excludes:
+        - ~/Documents/myapp/cache
+        - ~/Documents/myapp/tmp
     compress_with:
       type: tgz
     storages:
       local:
         type: local
         path: ~/backups/pack
+        keep: 3
       ftp:
         type: ftp
         host: ftp.example.com
@@ -29,6 +35,7 @@ models:
         password: secret
         explicit_tls: false
         no_check_certificate: false
+        keep: 3
       sftp:
         type: sftp
         host: sftp.example.com
@@ -37,6 +44,7 @@ models:
         path: /backups
         username: pack
         password: secret
+        keep: 3
         # Alternative authentication method:
         # private_key: ~/.ssh/id_rsa
         # passphrase: secret-passphrase

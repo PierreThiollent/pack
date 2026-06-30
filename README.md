@@ -5,22 +5,28 @@
 <h1 align="center">pack</h1>
 
 <p align="center">
-  Simple application backups from a single CLI.
+  Back up your apps. Pack them away.<br />
+  Dump databases, archive files, compress, and store backups from one CLI.
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/github/v/release/PierreThiollent/pack" alt="Latest release" />
+  <a href="https://github.com/PierreThiollent/pack/actions?query=workflow%3ACI">
+    <img src="https://github.com/PierreThiollent/pack/actions/workflows/ci.yml/badge.svg" alt="Build & test" />
+  </a>
+  <a href="https://github.com/PierreThiollent/pack/releases">
+    <img src="https://img.shields.io/github/v/release/PierreThiollent/pack" alt="Latest release" />
+  </a>
   <img src="https://img.shields.io/badge/rust-2024-orange" alt="Rust 2024" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
 </p>
 
-`pack` exports databases, collects files, compresses the result, and stores the final archive in one or more destinations.
+`pack` is a small, explicit backup CLI for application servers.
 
-It is designed to be small, explicit, and easy to run from cron or any existing scheduler.
+It dumps databases, archives files, compresses everything into timestamped artifacts, and ships them to local, FTP, or SFTP storage.
 
 ## Installation
 
-Install `pack` with the install script:
+Install the latest release:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/PierreThiollent/pack/main/install.sh | sh
@@ -32,7 +38,7 @@ Install a specific version:
 curl -fsSL https://raw.githubusercontent.com/PierreThiollent/pack/main/install.sh | sh -s v0.1.0
 ```
 
-The script downloads the matching binary from GitHub Releases and installs it to `/usr/local/bin/pack`.
+The script downloads the matching release binary from GitHub Releases and installs it to `/usr/local/bin/pack`.
 
 ### Build from source
 
@@ -75,10 +81,16 @@ models:
         username: backup
         password: secret
 
+    schedule:
+      cron: "5 4 * * sun"
+
     archive:
       includes:
         - /var/www/my_site/uploads
         - /var/www/my_site/.env
+      excludes:
+        - /var/www/my_site/uploads/cache
+        - /var/www/my_site/uploads/tmp
 
     compress_with:
       type: tgz
@@ -87,18 +99,33 @@ models:
       local:
         type: local
         path: ~/backups/pack
+        keep: 7
 ```
 
-Run the backup:
+Run the backup once:
 
 ```bash
 pack perform
+```
+
+Run the scheduler in the foreground:
+
+```bash
+pack run
+```
+
+Start the scheduler as a background daemon:
+
+```bash
+pack start
 ```
 
 Or use an explicit config path:
 
 ```bash
 pack perform -c /path/to/pack.yml
+pack run -c /path/to/pack.yml
+pack start -c /path/to/pack.yml
 ```
 
 ## Configuration
@@ -139,16 +166,54 @@ databases:
 
 `database` is required. `host` defaults to `localhost`, `port` defaults to `3306`, and `username` defaults to `root`.
 
-### Archive includes
+### Archive includes and excludes
 
 ```yml
 archive:
   includes:
     - /var/www/my_site/uploads
     - /var/www/my_site/.env
+  excludes:
+    - /var/www/my_site/uploads/cache
+    - /var/www/my_site/uploads/tmp
 ```
 
-Included files and directories are added to an intermediate tar archive before compression.
+Files and directories listed in `includes` are added to an intermediate tar archive before compression.
+
+`excludes` lets you skip files or directories inside the configured includes. Paths support `~` expansion. When an excluded path is a directory, all files and directories below it are skipped too.
+
+An excluded path does not have to exist: if it matches nothing, it is simply ignored.
+
+### Schedule
+
+A model can define a `schedule` block to run automatically with `pack run`:
+
+```yml
+models:
+  my_site:
+    schedule:
+      cron: "5 4 * * sun"
+```
+
+Cron expressions use the common 5-field syntax:
+
+```text
+minute hour day-of-month month day-of-week
+```
+
+For example, `5 4 * * sun` runs every Sunday at 04:05.
+
+`pack` also accepts the 6-field format used internally by `tokio-cron-scheduler`:
+
+```text
+second minute hour day-of-month month day-of-week
+```
+
+If a scheduled backup is still running when the next cron tick happens, the new run is skipped to avoid concurrent backups.
+
+`pack run` keeps running after a scheduled backup failure. The error is logged and the next cron tick will try again.
+
+Interval schedules such as `every: 1day` / `at: 04:05` are planned but not implemented yet.
 
 ### Compression
 
@@ -165,6 +230,8 @@ my_site-20260617-134625.tar.gz
 
 ## Storages
 
+Storages define where final backup artifacts are copied or uploaded. A model can use one or more storages.
+
 ### Local
 
 ```yml
@@ -172,6 +239,7 @@ storages:
   local:
     type: local
     path: ~/backups/pack
+    keep: 7
 ```
 
 The final `.tar.gz` artifact is copied to the configured directory.
@@ -190,6 +258,7 @@ storages:
     password: secret
     explicit_tls: false
     no_check_certificate: false
+    keep: 7
 ```
 
 Required fields: `host`, `username`, `password`.
@@ -201,6 +270,7 @@ Defaults:
 - `path`: `/` — often the FTP user's virtual root directory, not the server filesystem root
 - `explicit_tls`: `false`
 - `no_check_certificate`: `false`
+- `keep`: `0`
 
 Notes:
 
@@ -222,6 +292,7 @@ storages:
     path: backups/my_site
     username: pack
     password: secret
+    keep: 7
 ```
 
 Private key authentication:
@@ -237,6 +308,7 @@ storages:
     username: pack
     private_key: ~/.ssh/id_rsa
     passphrase: optional-passphrase
+    keep: 7
 ```
 
 Required fields: `host`, `username`, and at least one authentication method: `password` or `private_key`.
@@ -246,12 +318,93 @@ Defaults:
 - `port`: `22`
 - `timeout`: `300` seconds
 - `path`: `/` — the server root from the SFTP session point of view; on shared hosting this may not be writable
+- `keep`: `0`
 
 `passphrase` is only valid with `private_key` authentication.
 
 For SFTP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
 
+## Retention / cycler
+
+Each storage can define a `keep` value:
+
+```yml
+storages:
+  local:
+    type: local
+    path: ~/backups/pack
+    keep: 7
+```
+
+`keep: N` keeps the latest `N` backups known by that storage and removes older ones after a successful upload.
+
+`keep: 0` means unlimited retention: backups are never removed automatically. This is the default when `keep` is omitted.
+
+`pack` stores retention state locally in:
+
+```text
+~/.pack/cycler/{model}_{storage}.json
+```
+
+The cycler only removes backups that are present in this state file. Files that already exist in a storage but are not listed in the cycler state are left untouched.
+
+If deleting an old backup fails, the backup run still succeeds. `pack` logs a warning and keeps that backup in the cycler state so it can retry deletion on a future run.
+
+## Commands
+
+### `pack perform`
+
+Runs all configured models once, then exits.
+
+If a backup fails, the command exits with an error code.
+
+### `pack run`
+
+Runs the scheduler in the foreground.
+
+Only models with a `schedule` block are registered. When a scheduled job fails, the error is logged and the scheduler keeps running.
+
+Stop it with `Ctrl+C`.
+
+Use `pack run` to validate your config and schedules before running pack as a daemon.
+
+### `pack start`
+
+Starts the scheduler as a background daemon.
+
+The parent process prints the log and PID file locations, then exits. Runtime logs are written to:
+
+```text
+~/.pack/pack.log
+```
+
+The daemon PID is written to:
+
+```text
+~/.pack/pack.pid
+```
+
+Stop the daemon with:
+
+```bash
+kill $(cat ~/.pack/pack.pid)
+```
+
+`pack start` keeps the launch directory as the daemon working directory, so relative paths behave like they do with `pack run` when both commands are launched from the same directory.
+
 ## Logs
+
+`pack` writes human-readable logs to the terminal.
+
+Log destinations depend on the command:
+
+| Command | Terminal | Log file |
+|---|---:|---:|
+| `pack perform` | yes | no |
+| `pack run` | yes | `~/.pack/pack.log` |
+| `pack start` | startup message only | `~/.pack/pack.log` |
+
+`pack run` and `pack start` create `~/.pack/pack.log` automatically when needed. Terminal logs can be colored; file logs are written without ANSI color codes.
 
 Example output:
 
@@ -278,8 +431,6 @@ cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
 ```
-
-The project uses Git hooks to run formatting checks before commits.
 
 ## License
 

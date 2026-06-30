@@ -1,6 +1,9 @@
 # Rust
 /target
 
+# Node / frontend tooling
+/node_modules
+
 # Agent / collaboration
 .pi
 SESSION_LOG.md

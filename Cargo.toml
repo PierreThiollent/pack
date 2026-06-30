@@ -1,6 +1,6 @@
 [package]
 name = "pack"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 
 [dependencies]
@@ -8,7 +8,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
 serde_yaml = "0.9"
-flate2 = "1"
+serde_json = "1"
+gzp = { version = "2.0.2", default-features = false, features = ["deflate_rust"] }
 tar = "0.4"
 tempfile = "3"
 time = { version = "0.3", features = ["macros"] }
@@ -16,3 +17,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "local-time"] }
 suppaftp = { version = "8.0.4", features = ["native-tls"] }
 ssh2 = "0.9.5"
+shellexpand = "3"
+tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tokio-cron-scheduler = "0.15.1"
+daemonize = "0.5.0"
