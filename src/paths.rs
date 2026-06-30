@@ -13,7 +13,6 @@ pub(crate) fn pack_log_file_path() -> PathBuf {
     pack_home_dir().join("pack.log")
 }
 
-#[allow(dead_code)]
 pub(crate) fn pack_pid_file_path() -> PathBuf {
     pack_home_dir().join("pack.pid")
 }

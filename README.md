@@ -114,11 +114,18 @@ Run the scheduler in the foreground:
 pack run
 ```
 
+Start the scheduler as a background daemon:
+
+```bash
+pack start
+```
+
 Or use an explicit config path:
 
 ```bash
 pack perform -c /path/to/pack.yml
 pack run -c /path/to/pack.yml
+pack start -c /path/to/pack.yml
 ```
 
 ## Configuration
@@ -359,7 +366,31 @@ Only models with a `schedule` block are registered. When a scheduled job fails, 
 
 Stop it with `Ctrl+C`.
 
-`pack start` for background daemon mode is planned for a future version.
+Use `pack run` to validate your config and schedules before running pack as a daemon.
+
+### `pack start`
+
+Starts the scheduler as a background daemon.
+
+The parent process prints the log and PID file locations, then exits. Runtime logs are written to:
+
+```text
+~/.pack/pack.log
+```
+
+The daemon PID is written to:
+
+```text
+~/.pack/pack.pid
+```
+
+Stop the daemon with:
+
+```bash
+kill $(cat ~/.pack/pack.pid)
+```
+
+`pack start` keeps the launch directory as the daemon working directory, so relative paths behave like they do with `pack run` when both commands are launched from the same directory.
 
 ## Logs
 
@@ -371,9 +402,9 @@ Log destinations depend on the command:
 |---|---:|---:|
 | `pack perform` | yes | no |
 | `pack run` | yes | `~/.pack/pack.log` |
-| `pack start` | planned | planned |
+| `pack start` | startup message only | `~/.pack/pack.log` |
 
-`pack run` creates `~/.pack/pack.log` automatically when needed. Terminal logs can be colored; file logs are written without ANSI color codes.
+`pack run` and `pack start` create `~/.pack/pack.log` automatically when needed. Terminal logs can be colored; file logs are written without ANSI color codes.
 
 Example output:
 

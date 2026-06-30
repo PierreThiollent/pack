@@ -3,6 +3,7 @@ use crate::logging::{LogTag, tag};
 use crate::model;
 use serde::Deserialize;
 use std::sync::Arc;
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::Semaphore;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tracing::{error, info};
@@ -21,10 +22,7 @@ pub struct ScheduleConfig {
 }
 
 pub async fn run_foreground(config: Config) -> Result<(), String> {
-    info!(
-        pack_tag = %tag(LogTag::Run),
-        "Starting scheduler in foreground..."
-    );
+    info!(pack_tag = %tag(LogTag::Run), "Starting scheduler...");
 
     log_scheduled_models(&config);
 
@@ -127,9 +125,17 @@ async fn register_cron_jobs(scheduler: &JobScheduler, config: Arc<Config>) -> Re
 }
 
 async fn wait_for_shutdown_signal() -> Result<(), String> {
-    tokio::signal::ctrl_c()
-        .await
-        .map_err(|error| format!("Failed to listen for Ctrl+C: {error}"))
+    let mut terminate_signal = signal(SignalKind::terminate())
+        .map_err(|error| format!("Failed to listen for SIGTERM: {error}"))?;
+
+    tokio::select! {
+        result = tokio::signal::ctrl_c() => {
+            result.map_err(|error| format!("Failed to listen for Ctrl+C: {error}"))?;
+        }
+        _ = terminate_signal.recv() => {}
+    }
+
+    Ok(())
 }
 
 fn log_scheduled_models(config: &Config) {
