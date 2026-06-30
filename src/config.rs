@@ -1,9 +1,12 @@
 use crate::archive::ArchiveConfig;
 use crate::compressor::CompressorConfig;
 use crate::database::DatabaseConfig;
+use crate::logging::{LogTag, tag};
 use crate::paths;
+use crate::scheduler::ScheduleConfig;
 use crate::storage::StorageConfig;
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use tracing::error;
 
@@ -20,6 +23,9 @@ pub struct Config {
 /// A model = one complete backup job
 #[derive(Debug, Deserialize)]
 pub struct Model {
+    /// Schedule used by long-running commands to run this model automatically.
+    pub schedule: Option<ScheduleConfig>,
+
     /// Databases to back up, keyed by name
     #[serde(default)]
     pub databases: HashMap<String, DatabaseConfig>,
@@ -64,16 +70,34 @@ pub(crate) fn validate_model_name(model_name: &str) -> Result<(), String> {
 /// Exits the process with an error message on failure.
 pub fn load_config(path: &str) -> Config {
     let yaml_content = std::fs::read_to_string(path).unwrap_or_else(|error| {
-        error!("[Config] Failed to read config file {path}: {error}");
+        error!(
+            pack_tag = %tag(LogTag::Config),
+            "Failed to read config file {path}: {error}"
+        );
         std::process::exit(1);
     });
-    let config: Config = serde_yaml::from_str(&yaml_content).unwrap_or_else(|error| {
-        error!("[Config] Failed to parse config file {path}: {error}");
+    let expanded_yaml_content =
+        expand_environment_variables(&yaml_content).unwrap_or_else(|error| {
+            error!(
+                pack_tag = %tag(LogTag::Config),
+                "Failed to expand environment variables in config file {path}: {error}"
+            );
+            std::process::exit(1);
+        });
+
+    let config: Config = serde_yaml::from_str(&expanded_yaml_content).unwrap_or_else(|error| {
+        error!(
+            pack_tag = %tag(LogTag::Config),
+            "Failed to parse config file {path}: {error}"
+        );
         std::process::exit(1);
     });
 
     validate_config(&config).unwrap_or_else(|error| {
-        error!("[Config] Invalid config file {path}: {error}");
+        error!(
+            pack_tag = %tag(LogTag::Config),
+            "Invalid config file {path}: {error}"
+        );
         std::process::exit(1);
     });
 
@@ -86,6 +110,22 @@ fn validate_config(config: &Config) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Expand `$VAR` and `${VAR}` placeholders before parsing the YAML config.
+/// Missing variables are treated as configuration errors to avoid silently using empty secrets.
+fn expand_environment_variables(yaml_content: &str) -> Result<String, String> {
+    shellexpand::env(yaml_content)
+        .map(Cow::into_owned)
+        .map_err(|error| format!("missing environment variable `{}`", error.var_name))
+}
+
+#[cfg(test)]
+fn expand_environment_variables_with_context(
+    yaml_content: &str,
+    context: impl Fn(&str) -> Option<String>,
+) -> String {
+    shellexpand::env_with_context_no_errors(yaml_content, context).into_owned()
 }
 
 #[cfg(test)]
@@ -148,6 +188,93 @@ models:
                 assert_eq!(cfg.password.as_deref(), Some("secret123"));
             }
         }
+    }
+
+    #[test]
+    fn expand_environment_variables_supports_dollar_syntax() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: mysql
+        database: app
+        password: $MYSQL_PASSWORD
+"#;
+
+        let expanded_yaml = expand_environment_variables_with_context(yaml, |variable_name| {
+            if variable_name == "MYSQL_PASSWORD" {
+                Some("secret123".to_string())
+            } else {
+                None
+            }
+        });
+        let config: Config = serde_yaml::from_str(&expanded_yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::MySQL(mysql_config) => {
+                assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
+            }
+        }
+    }
+
+    #[test]
+    fn expand_environment_variables_supports_braced_syntax() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: mysql
+        database: app
+        password: ${MYSQL_PASSWORD}
+"#;
+
+        let expanded_yaml = expand_environment_variables_with_context(yaml, |variable_name| {
+            if variable_name == "MYSQL_PASSWORD" {
+                Some("secret123".to_string())
+            } else {
+                None
+            }
+        });
+        let config: Config = serde_yaml::from_str(&expanded_yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::MySQL(mysql_config) => {
+                assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
+            }
+        }
+    }
+
+    #[test]
+    fn expand_environment_variables_returns_error_when_variable_is_missing() {
+        let error =
+            expand_environment_variables("password: $PACK_MISSING_TEST_PASSWORD").unwrap_err();
+
+        assert!(error.contains("PACK_MISSING_TEST_PASSWORD"));
+    }
+
+    #[test]
+    fn expand_environment_variables_keeps_regular_content_unchanged() {
+        let yaml = "password: secret123";
+
+        let expanded_yaml = expand_environment_variables_with_context(yaml, |_| None);
+
+        assert_eq!(expanded_yaml, yaml);
     }
 
     #[test]
@@ -254,6 +381,7 @@ models:
       local_backup:
         type: local
         path: ~/Desktop/pack-backups
+        keep: 3
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -268,6 +396,7 @@ models:
         match storage {
             StorageConfig::Local(local_config) => {
                 assert_eq!(local_config.path, "~/Desktop/pack-backups");
+                assert_eq!(local_config.keep, 3);
             }
             StorageConfig::Ftp(_) | StorageConfig::Sftp(_) => panic!("Expected local storage"),
         }
@@ -289,6 +418,7 @@ models:
         password: pass1
         explicit_tls: true
         no_check_certificate: true
+        keep: 4
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -310,6 +440,7 @@ models:
                 assert_eq!(ftp_config.password, "pass1");
                 assert!(ftp_config.explicit_tls);
                 assert!(ftp_config.no_check_certificate);
+                assert_eq!(ftp_config.keep, 4);
             }
             StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
         }
@@ -344,6 +475,7 @@ models:
                 assert_eq!(ftp_config.path, "/");
                 assert!(!ftp_config.explicit_tls);
                 assert!(!ftp_config.no_check_certificate);
+                assert_eq!(ftp_config.keep, 0);
             }
             StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
         }
@@ -365,6 +497,7 @@ models:
         password: pass1
         private_key: ~/.ssh/id_rsa
         passphrase: key-passphrase
+        keep: 5
 "#;
 
         let config: Config = serde_yaml::from_str(yaml).unwrap();
@@ -386,6 +519,7 @@ models:
                 assert_eq!(sftp_config.password.as_deref(), Some("pass1"));
                 assert_eq!(sftp_config.private_key.as_deref(), Some("~/.ssh/id_rsa"));
                 assert_eq!(sftp_config.passphrase.as_deref(), Some("key-passphrase"));
+                assert_eq!(sftp_config.keep, 5);
             }
             StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
         }
@@ -421,6 +555,7 @@ models:
                 assert_eq!(sftp_config.password.as_deref(), Some("pass1"));
                 assert!(sftp_config.private_key.is_none());
                 assert!(sftp_config.passphrase.is_none());
+                assert_eq!(sftp_config.keep, 0);
             }
             StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
         }
@@ -487,6 +622,67 @@ models:
         let config: Config = serde_yaml::from_str(yaml).unwrap();
         let model = config.models.get("my_app").unwrap();
         assert!(model.compress_with.is_none());
+    }
+
+    #[test]
+    fn parse_model_without_schedule() {
+        let yaml = r#"
+models:
+  my_app:
+    databases: {}
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let model = config.models.get("my_app").unwrap();
+
+        assert!(model.schedule.is_none());
+    }
+
+    #[test]
+    fn parse_model_with_every_schedule() {
+        let yaml = r#"
+models:
+  my_app:
+    schedule:
+      every: 1day
+      at: "04:05"
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let schedule = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .schedule
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(schedule.every.as_deref(), Some("1day"));
+        assert_eq!(schedule.at.as_deref(), Some("04:05"));
+        assert!(schedule.cron.is_none());
+    }
+
+    #[test]
+    fn parse_model_with_cron_schedule() {
+        let yaml = r#"
+models:
+  my_app:
+    schedule:
+      cron: "5 4 * * sun"
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let schedule = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .schedule
+            .as_ref()
+            .unwrap();
+
+        assert_eq!(schedule.cron.as_deref(), Some("5 4 * * sun"));
+        assert!(schedule.every.is_none());
+        assert!(schedule.at.is_none());
     }
 
     #[test]

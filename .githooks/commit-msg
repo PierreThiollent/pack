@@ -1,0 +1,13 @@
+#!/usr/bin/env sh
+# Validate commit messages with Cocogitto.
+
+set -eu
+
+if ! command -v cog >/dev/null 2>&1; then
+  echo "commit-msg: cocogitto is required to validate Conventional Commits." >&2
+  echo "Install it with: cargo install cocogitto" >&2
+  echo "Then retry your commit." >&2
+  exit 1
+fi
+
+cog verify --file "$1"

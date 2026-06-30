@@ -1,10 +1,14 @@
+use crate::logging::{LogTag, tag};
 use chrono::{Local, NaiveDateTime};
-use flate2::Compression;
-use flate2::write::GzEncoder;
+use gzp::ZWriter;
+use gzp::deflate::Gzip;
+use gzp::par::compress::{Compression, ParCompress, ParCompressBuilder};
 use serde::Deserialize;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 use tracing::info;
+
+const TGZ_COMPRESSION_LEVEL: u32 = 4;
 
 /// Configuration for compression — the `type` field determines which variant is used.
 #[derive(Debug, Deserialize)]
@@ -27,18 +31,23 @@ pub fn run(
             let timestamp = timestamp_label(Local::now().naive_local());
             let artifact_path = artifact_path(dump_directory, model_name, &timestamp, ".tar.gz")?;
             info!(
-                "[Compressor: tgz] Creating compressed artifact: {}",
+                pack_tag = %tag(LogTag::Compressor(Some("tgz"))),
+                "Creating compressed artifact: {}",
                 artifact_path.display()
             );
             create_tgz(dump_directory, model_name, &artifact_path)?;
             info!(
-                "[Compressor: tgz] Compressed artifact created: {}",
+                pack_tag = %tag(LogTag::Compressor(Some("tgz"))),
+                "Compressed artifact created: {}",
                 artifact_path.display()
             );
             Ok(artifact_path)
         }
         None => {
-            info!("[Compressor] No compression configured; using dump directory as artifact");
+            info!(
+                pack_tag = %tag(LogTag::Compressor(None)),
+                "No compression configured; using dump directory as artifact"
+            );
             Ok(dump_directory.to_path_buf())
         }
     }
@@ -74,7 +83,7 @@ fn create_tgz(dump_directory: &Path, model_name: &str, artifact_path: &Path) -> 
     let artifact_file = File::create(artifact_path).map_err(|error| {
         format!("Failed to create compressed artifact {artifact_path:?}: {error}")
     })?;
-    let encoder = GzEncoder::new(artifact_file, Compression::default());
+    let encoder = create_gzip_encoder(artifact_file);
     let mut builder = tar::Builder::new(encoder);
 
     builder
@@ -88,6 +97,21 @@ fn create_tgz(dump_directory: &Path, model_name: &str, artifact_path: &Path) -> 
     let encoder = builder
         .into_inner()
         .map_err(|error| format!("Failed to finish tar archive {artifact_path:?}: {error}"))?;
+    finish_gzip_encoder(encoder, artifact_path)?;
+
+    Ok(())
+}
+
+fn create_gzip_encoder(output_file: File) -> ParCompress<'static, Gzip, File> {
+    ParCompressBuilder::new()
+        .compression_level(Compression::new(TGZ_COMPRESSION_LEVEL))
+        .from_writer(output_file)
+}
+
+fn finish_gzip_encoder(
+    mut encoder: ParCompress<'static, Gzip, File>,
+    artifact_path: &Path,
+) -> Result<(), String> {
     encoder
         .finish()
         .map_err(|error| format!("Failed to finish gzip artifact {artifact_path:?}: {error}"))?;
@@ -154,20 +178,28 @@ mod tests {
             "Artifact should use .tar.gz extension: {artifact_path:?}"
         );
 
-        let artifact_file = File::open(&artifact_path).unwrap();
-        let decoder = flate2::read::GzDecoder::new(artifact_file);
-        let mut archive = tar::Archive::new(decoder);
-        let mut dump_sql_content = None;
-        for entry in archive.entries().unwrap() {
-            let mut entry = entry.unwrap();
-            if entry.path().unwrap() == Path::new("mon_site/dump.sql") {
-                let mut content = String::new();
-                std::io::Read::read_to_string(&mut entry, &mut content).unwrap();
-                dump_sql_content = Some(content);
-            }
-        }
+        let extract_directory = run_directory.path().join("extract");
+        std::fs::create_dir(&extract_directory).unwrap();
+        let output = std::process::Command::new("tar")
+            .args([
+                "-xzf",
+                &artifact_path.to_string_lossy(),
+                "-C",
+                &extract_directory.to_string_lossy(),
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "tar should extract compressed artifact. stdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
 
-        assert_eq!(dump_sql_content.as_deref(), Some("select 1;"));
+        let dump_sql_content =
+            std::fs::read_to_string(extract_directory.join("mon_site").join("dump.sql")).unwrap();
+
+        assert_eq!(dump_sql_content, "select 1;");
 
         run_directory.close().unwrap();
     }

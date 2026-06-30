@@ -1,7 +1,9 @@
 use crate::archive;
 use crate::compressor;
 use crate::config::{Config, Model, validate_model_name};
+use crate::cycler::{self, Cycler};
 use crate::database;
+use crate::logging::{LogTag, tag};
 use crate::paths;
 use crate::storage;
 use std::path::{Path, PathBuf};
@@ -15,20 +17,58 @@ use tracing::{info, warn};
 /// its own dump directory inside it. The run directory is always cleaned up,
 /// even on failure.
 pub fn run_all(config: &Config) -> Result<(), String> {
-    info!("[Run] Starting backup run");
+    info!(pack_tag = %tag(LogTag::Run), "Starting backup run");
 
+    run_in_temporary_directory(
+        config,
+        |run_directory| run_models(config, run_directory),
+        "Backup run completed",
+    )
+}
+
+/// Run one backup model from the configuration.
+pub fn run_one(config: &Config, model_name: &str) -> Result<(), String> {
+    info!(
+        pack_tag = %tag(LogTag::Run),
+        "Starting backup run for model {model_name}"
+    );
+
+    let model = config
+        .models
+        .get(model_name)
+        .ok_or_else(|| format!("Model {model_name} not found"))?;
+
+    run_in_temporary_directory(
+        config,
+        |run_directory| run_model_pipeline(model_name, model, run_directory),
+        "Backup run completed",
+    )
+}
+
+fn run_in_temporary_directory(
+    config: &Config,
+    run: impl FnOnce(&Path) -> Result<(), String>,
+    success_message: &str,
+) -> Result<(), String> {
     let run_directory = create_run_directory(config.workdir.as_deref())?;
-    info!("[Run] Work directory: {}", run_directory.path().display());
+    info!(
+        pack_tag = %tag(LogTag::Run),
+        "Work directory: {}",
+        run_directory.path().display()
+    );
 
-    let result = run_models(config, run_directory.path());
+    let result = run(run_directory.path());
 
     let run_directory_path = run_directory.path().to_path_buf();
     if let Err(error) = run_directory.close() {
-        warn!("[Cleanup] Failed to clean up run directory {run_directory_path:?}: {error}");
+        warn!(
+            pack_tag = %tag(LogTag::Cleanup),
+            "Failed to clean up run directory {run_directory_path:?}: {error}"
+        );
     }
 
     if result.is_ok() {
-        info!("[Run] Backup run completed");
+        info!(pack_tag = %tag(LogTag::Run), "{success_message}");
     }
 
     result
@@ -36,16 +76,22 @@ pub fn run_all(config: &Config) -> Result<(), String> {
 
 fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
     for (name, model) in &config.models {
-        info!("[Model: {name}] Running model");
-
-        let dump_directory = create_dump_directory(run_directory, name)?;
-        run_model_databases(model, &dump_directory)?;
-        archive::run(model.archive.as_ref(), &dump_directory)?;
-        let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory, name)?;
-        run_model_storages(model, &artifact_path)?;
-
-        info!("[Model: {name}] Model completed");
+        run_model_pipeline(name, model, run_directory)?;
     }
+
+    Ok(())
+}
+
+fn run_model_pipeline(name: &str, model: &Model, run_directory: &Path) -> Result<(), String> {
+    info!(pack_tag = %tag(LogTag::Model(name)), "Running model");
+
+    let dump_directory = create_dump_directory(run_directory, name)?;
+    run_model_databases(model, &dump_directory)?;
+    archive::run(model.archive.as_ref(), &dump_directory)?;
+    let artifact_path = compressor::run(model.compress_with.as_ref(), &dump_directory, name)?;
+    run_model_storages(name, model, &artifact_path)?;
+
+    info!(pack_tag = %tag(LogTag::Model(name)), "Model completed");
 
     Ok(())
 }
@@ -55,19 +101,55 @@ fn run_model_databases(model: &Model, dump_directory: &Path) -> Result<(), Strin
     for (database_name, database_config) in &model.databases {
         let database_type = database_config.type_name();
 
-        info!("[{database_type}: {database_name}] Dumping database");
+        let database_tag = LogTag::Database {
+            database_type,
+            database_name,
+        };
+
+        info!(pack_tag = %tag(database_tag), "Dumping database");
         database::run(database_config, dump_directory)?;
-        info!("[{database_type}: {database_name}] Database completed");
+        info!(pack_tag = %tag(database_tag), "Database completed");
     }
     Ok(())
 }
 
-fn run_model_storages(model: &Model, source_path: &Path) -> Result<(), String> {
+fn run_model_storages(model_name: &str, model: &Model, source_path: &Path) -> Result<(), String> {
     for (storage_name, storage_config) in &model.storages {
-        info!("[Storage: {storage_name}] Uploading backup");
-        storage::run(storage_config, source_path)?;
-        info!("[Storage: {storage_name}] Storage completed");
+        info!(
+            pack_tag = %tag(LogTag::Storage(storage_name)),
+            "Uploading backup"
+        );
+        run_storage_with_retention(model_name, storage_name, storage_config, source_path)?;
+        info!(
+            pack_tag = %tag(LogTag::Storage(storage_name)),
+            "Storage completed"
+        );
     }
+    Ok(())
+}
+
+/// Store one artifact, then update the cycler state with the deletions that succeeded.
+fn run_storage_with_retention(
+    model_name: &str,
+    storage_name: &str,
+    storage_config: &storage::StorageConfig,
+    source_path: &Path,
+) -> Result<(), String> {
+    let file_key = storage::artifact_file_key(source_path, storage_name)?;
+    let state_path = cycler::default_state_path(model_name, storage_name);
+    let mut cycler = Cycler::load_from_path(&state_path)?;
+
+    // Record the new backup first, then compute which older backups exceed `keep`.
+    // The candidates are passed to the storage so network storages can purge them
+    // with the same connection as the upload.
+    cycler.add(&file_key);
+    let candidate_file_keys = cycler.prune_candidates(storage_config.keep());
+    let result = storage::run(storage_config, source_path, &candidate_file_keys)?;
+
+    // Keep failed delete candidates in the cycler state so future runs can retry them.
+    cycler.remove_file_keys(&result.deleted_file_keys);
+    cycler.save_to_path(&state_path)?;
+
     Ok(())
 }
 
@@ -124,6 +206,7 @@ mod tests {
         models.insert(
             "my_app".to_string(),
             Model {
+                schedule: None,
                 databases: HashMap::new(),
                 storages: HashMap::new(),
                 archive: None,
@@ -152,6 +235,28 @@ mod tests {
         assert_directory_is_empty(workdir.path());
 
         workdir.close().unwrap();
+    }
+
+    #[test]
+    fn run_one_creates_and_cleans_run_directory() {
+        let workdir = tempfile::tempdir().unwrap();
+        let config = make_config(Some(workdir.path().to_string_lossy().into_owned()));
+
+        let result = run_one(&config, "my_app");
+
+        assert!(result.is_ok());
+        assert_directory_is_empty(workdir.path());
+
+        workdir.close().unwrap();
+    }
+
+    #[test]
+    fn run_one_returns_error_when_model_does_not_exist() {
+        let config = make_config(None);
+
+        let result = run_one(&config, "missing_app");
+
+        assert_eq!(result, Err("Model missing_app not found".to_string()));
     }
 
     #[test]

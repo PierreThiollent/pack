@@ -27,7 +27,7 @@ pack/
 │   │   ├── scp.rs           # SSH/SCP
 │   │   ├── webdav.rs        # WebDAV
 │   │   └── ...
-│   ├── compressor.rs        # Compression (tar + gz/bz2/xz via flate2, bzip2, xz crates)
+│   ├── compressor.rs        # Compression (tar + gzip parallèle via gzp, puis bz2/xz plus tard)
 │   ├── archive.rs           # Tar
 │   ├── encryptor.rs         # Chiffrement (age ou openssl)
 │   ├── splitter.rs          # Découpage en chunks
@@ -51,7 +51,8 @@ pack/
 - `reqwest` — HTTP client (notifications, webhooks)
 - `aws-sdk-s3` — S3 storage
 - `ssh2` / `scp` — SFTP/SCP
-- `flate2`, `bzip2`, `xz` — Compression
+- `gzp` — Compression gzip parallèle intégrée
+- `bzip2`, `xz` — Compression bonus plus tard
 - `tar` — Archive
 - `cron` — Schedule
 - `axum` — Web UI
@@ -67,80 +68,103 @@ pack/
 Fonctionnalités minimales pour avoir un outil utilisable en ligne de commande, capable de sauvegarder une base de données locale vers un stockage local ou FTP avec compression.
 
 ### CLI
+
 - [x] Binaire `pack` avec sous-commandes : `perform`, `help`
 - [x] Chargement de la config depuis `~/.pack/pack.yml` ou chemin explicite `-c`
 - [x] Parsing YAML de la config (models → databases → storages → compress_with)
 
 ### Modèle / Pipeline
+
 - [x] Exécution d'un pipeline complet pour un model :
   - Dump database → Archive (tar) → Compress (gz) → Upload → Cleanup temp
 - [x] Cycle de vie : workdir temporaire unique par run → suppression après upload
 - [x] Logging console avec niveau (info, warn, error)
 
 ### Database
+
 - [x] **MySQL** : `mysqldump` en subprocess → dump SQL (✅ **choisi**)
 
 ### Archive
+
 - [x] Inclure les dossiers/fichiers listés dans `archive.includes` → tar
 - [x] Combinaison : dump SQL + archive → artifact final compressé
 
 Note : `archive.excludes` est repoussé après le MVP pour garder v0.1.0 simple.
 
 ### Compression
+
 - [x] `compress_with.type = "tgz"` → tar.gz
+- [x] `tgz` utilise `gzp + deflate_rust` niveau 4 pour une compression gzip parallèle sans dépendance runtime externe
 - [ ] `tbz2` et `txz` (bonus, repoussé après v0.1.0)
 
 ### Storage
+
 - [x] **Local** : copie du fichier vers `path` avec horodatage (✅ **choisi**)
 - [x] **FTP** : upload vers serveur FTP (via `suppaftp`) (✅ **choisi**)
 - [x] **SFTP** : upload via SSH (crate `ssh2`) (✅ **choisi**)
 
 ### Schedule / scripts
+
 - [ ] `before_script` et `after_script` exécutés en shell (repoussé en v0.2.0)
 - [x] Pas encore de daemon : `pack perform` exécute une seule fois
 
 ### Tests
+
 - [x] Tests unitaires pour le parsing de config
 - [x] Tests d'intégration pour le pipeline local via le CLI
 - [ ] Tests d'intégration avec mock des subprocess (optionnel / à réévaluer après v0.1.0)
 
 ### Livrable
+
 - [x] README.md avec exemple de config et usage
 - [x] Binaire unique fonctionnel sur macOS/Linux
 
 ---
 
-## v0.2.0 — Scripts + storages avancés
+## v0.2.0 — Archive exclude + Cycling + Daemon + Schedule + Signals +
 
-- [ ] `before_script` et `after_script` exécutés en shell
-- [ ] Ajouter `archive.excludes` pour exclure certains fichiers/dossiers des archives
+- [x] Ajouter `archive.excludes` pour exclure certains fichiers/dossiers des archives
+- [x] **Cycler** : `keep: N` par storage → état dans `~/.pack/cycler/{model}_{storage}.json`, purge des backups les plus anciens
+- [x] Sous-commande `pack start` → daemon en arrière-plan
+  - Daemonisation via `daemonize`.
+  - Logs runtime dans `~/.pack/pack.log`.
+  - PID file dans `~/.pack/pack.pid`.
+  - Le daemon conserve le répertoire de lancement comme working directory, comme GoBackup.
+- [x] Sous-commande `pack run` → scheduler au premier plan
+  - Charge la config puis démarre un `tokio-cron-scheduler`.
+  - Arrêt au premier plan via `Ctrl+C`.
+- [ ] **Scheduler intégré**
+  - [x] Support `schedule.cron` par model.
+  - [x] Compatibilité cron 5 champs type GoBackup / crontab.guru (`5 4 * * sun`) via normalisation vers le format 6 champs attendu par `tokio-cron-scheduler` (`0 5 4 * * sun`).
+  - [x] Exécution ciblée du model schedulé via `model::run_one`, sans relancer tous les models.
+  - [x] Protection anti-concurrence : si un backup schedulé tourne déjà, les déclenchements suivants sont skippés.
+  - [ ] Support intervalle (`every: 1day`, `at: 04:05`).
+  - [ ] Améliorer l'UX de shutdown : log explicite pendant l'attente d'un backup en cours, deuxième `Ctrl+C` pour forcer l'arrêt.
+  - [ ] Filtrer les logs internes trop verbeux de `tokio-cron-scheduler` (`Uninited`, `Job creator created`).
+- [ ] **Signal handling** : SIGHUP → reload config, SIGQUIT/SIGTERM → graceful shutdown
+- [x] PID file pour tracking du daemon
+
+---
+
+## v0.3.0 — Compression + Chiffrement + Split + before / after scripts
+
+- [ ] Compression : `tbz2` (bzip2) et `txz` (xz/lzma)
+- [ ] **Encrypt** : chiffrement du fichier avant upload (crate `age` — natif Rust, moderne)
+- [ ] **Splitter** : découpage en chunks de `chunk_size` avec extension `-NNN`
 - [ ] Upload atomique FTP/SFTP avec fichier `.part` puis rename
 - [ ] Vérification optionnelle de taille distante après upload
+- [ ] `before_script` et `after_script` exécutés en shell
+
+---
+
+## v0.4.0 — Storages avancés
+
 - [ ] **SCP** : upload via SSH (crate `ssh2`)
 - [ ] **WebDAV** : upload via HTTP WebDAV
 - [ ] **S3** : upload vers AWS S3/MinIO (crate `aws-sdk-s3`)
 - [ ] **GCS / Azure / B2** (un ou deux selon motivation)
 - [ ] Multi-storage : upload vers plusieurs destinations en parallèle
 - [ ] `default_storage` pour le Web UI
-
----
-
-## v0.3.0 — Compression + Chiffrement + Split
-
-- [ ] Compression : `tbz2` (bzip2) et `txz` (xz/lzma)
-- [ ] **Encrypt** : chiffrement du fichier avant upload (crate `age` — natif Rust, moderne)
-- [ ] **Splitter** : découpage en chunks de `chunk_size` avec extension `-NNN`
-- [ ] **Cycler** : `keep: N` → lecture/écriture de `~/.pack/cycler.json`, purge des backups les plus anciens
-
----
-
-## v0.4.0 — Daemon + Schedule + Signals
-
-- [ ] Sous-commande `pack start` → daemon en arrière-plan
-- [ ] Sous-commande `pack run` → premier plan
-- [ ] **Scheduler intégré** : cron (`5 4 * * sun`) OU intervalle (`every: 1day`, `at: 04:05`)
-- [ ] **Signal handling** : SIGHUP → reload config, SIGQUIT/SIGTERM → graceful shutdown
-- [ ] PID file pour tracking du daemon
 
 ---
 
@@ -181,29 +205,7 @@ Chaque notifier implémente un trait `Notifier` avec `notify_success()` et `noti
 - [ ] **InfluxDB** : export via API HTTP
 - [ ] **etcd** : `etcdctl snapshot`
 - [ ] **Firebird** : `gbak`
-- [ ] Gestion des ENV vars dans la config (`$VAR` / `${VAR}`)
 - [ ] Hot-reload config (SIGHUP)
 - [ ] Documentation complète
-- [ ] CI/CD (GitHub Actions), release binaire cross-plateforme
 
 ---
-
-## Roadmap visuelle
-
-```
-MVP (v0.1.0)    →  CLI + MySQL + Archive + TGZ + Local/FTP/SFTP
-    ↓
-v0.2.0         →  Scripts before/after + Excludes + S3/SCP/WebDAV + Multi-storage
-    ↓
-v0.3.0         →  TBZ2/TXZ + Encrypt (age) + Split + Cycler
-    ↓
-v0.4.0         →  Daemon + Scheduler + Signal handling
-    ↓
-v0.5.0         →  Notifications (Webhook, Slack, Discord, Mail...)
-    ↓
-v0.6.0         →  Web UI + REST API
-    ↓
-v1.0.0         →  Toutes les databases restantes + polish
-```
-
-

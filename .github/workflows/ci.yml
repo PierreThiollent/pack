@@ -7,6 +7,21 @@ on:
   pull_request:
 
 jobs:
+  conventional-commits:
+    name: Check Conventional Commits
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check Conventional Commits
+        uses: cocogitto/cocogitto-action@v3
+        with:
+          check-latest-tag-only: true
+
   ci:
     name: CI (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
