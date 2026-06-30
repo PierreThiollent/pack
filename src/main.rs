@@ -140,7 +140,10 @@ mod tests {
     fn cli_version_contains_version() {
         let err = Cli::try_parse_from(["pack", "--version"]).unwrap_err();
         let output = err.to_string();
-        assert!(output.contains("0.1.0"), "Version should contain 0.1.0");
+        assert!(
+            output.contains(env!("CARGO_PKG_VERSION")),
+            "Version should contain package version"
+        );
     }
 
     #[test]

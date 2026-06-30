@@ -40,9 +40,11 @@ fn version_displays_version() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
 
+    let package_version = env!("CARGO_PKG_VERSION");
+
     assert!(
-        stdout.contains("0.1.0") || stderr.contains("0.1.0"),
-        "Version should contain 0.1.0. stdout:\n{stdout}\nstderr:\n{stderr}"
+        stdout.contains(package_version) || stderr.contains(package_version),
+        "Version should contain package version. stdout:\n{stdout}\nstderr:\n{stderr}"
     );
 }
 
