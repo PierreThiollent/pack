@@ -27,7 +27,7 @@ pack/
 │   │   ├── scp.rs           # SSH/SCP
 │   │   ├── webdav.rs        # WebDAV
 │   │   └── ...
-│   ├── compressor.rs        # Compression (tar + gz/bz2/xz via flate2, bzip2, xz crates)
+│   ├── compressor.rs        # Compression (tar + gzip parallèle via gzp, puis bz2/xz plus tard)
 │   ├── archive.rs           # Tar
 │   ├── encryptor.rs         # Chiffrement (age ou openssl)
 │   ├── splitter.rs          # Découpage en chunks
@@ -51,7 +51,8 @@ pack/
 - `reqwest` — HTTP client (notifications, webhooks)
 - `aws-sdk-s3` — S3 storage
 - `ssh2` / `scp` — SFTP/SCP
-- `flate2`, `bzip2`, `xz` — Compression
+- `gzp` — Compression gzip parallèle intégrée
+- `bzip2`, `xz` — Compression bonus plus tard
 - `tar` — Archive
 - `cron` — Schedule
 - `axum` — Web UI
@@ -93,6 +94,7 @@ Note : `archive.excludes` est repoussé après le MVP pour garder v0.1.0 simple.
 ### Compression
 
 - [x] `compress_with.type = "tgz"` → tar.gz
+- [x] `tgz` utilise `gzp + deflate_rust` niveau 4 pour une compression gzip parallèle sans dépendance runtime externe
 - [ ] `tbz2` et `txz` (bonus, repoussé après v0.1.0)
 
 ### Storage
@@ -122,12 +124,25 @@ Note : `archive.excludes` est repoussé après le MVP pour garder v0.1.0 simple.
 ## v0.2.0 — Archive exclude + Cycling + Daemon + Schedule + Signals +
 
 - [x] Ajouter `archive.excludes` pour exclure certains fichiers/dossiers des archives
-- [ ] **Cycler** : `keep: N` → lecture/écriture de `~/.pack/cycler.json`, purge des backups les plus anciens
-- [ ] Sous-commande `pack start` → daemon en arrière-plan
-- [ ] Sous-commande `pack run` → premier plan
-- [ ] **Scheduler intégré** : cron (`5 4 * * sun`) OU intervalle (`every: 1day`, `at: 04:05`)
+- [x] **Cycler** : `keep: N` par storage → état dans `~/.pack/cycler/{model}_{storage}.json`, purge des backups les plus anciens
+- [x] Sous-commande `pack start` → daemon en arrière-plan
+  - Daemonisation via `daemonize`.
+  - Logs runtime dans `~/.pack/pack.log`.
+  - PID file dans `~/.pack/pack.pid`.
+  - Le daemon conserve le répertoire de lancement comme working directory, comme GoBackup.
+- [x] Sous-commande `pack run` → scheduler au premier plan
+  - Charge la config puis démarre un `tokio-cron-scheduler`.
+  - Arrêt au premier plan via `Ctrl+C`.
+- [ ] **Scheduler intégré**
+  - [x] Support `schedule.cron` par model.
+  - [x] Compatibilité cron 5 champs type GoBackup / crontab.guru (`5 4 * * sun`) via normalisation vers le format 6 champs attendu par `tokio-cron-scheduler` (`0 5 4 * * sun`).
+  - [x] Exécution ciblée du model schedulé via `model::run_one`, sans relancer tous les models.
+  - [x] Protection anti-concurrence : si un backup schedulé tourne déjà, les déclenchements suivants sont skippés.
+  - [ ] Support intervalle (`every: 1day`, `at: 04:05`).
+  - [ ] Améliorer l'UX de shutdown : log explicite pendant l'attente d'un backup en cours, deuxième `Ctrl+C` pour forcer l'arrêt.
+  - [ ] Filtrer les logs internes trop verbeux de `tokio-cron-scheduler` (`Uninited`, `Job creator created`).
 - [ ] **Signal handling** : SIGHUP → reload config, SIGQUIT/SIGTERM → graceful shutdown
-- [ ] PID file pour tracking du daemon
+- [x] PID file pour tracking du daemon
 
 ---
 

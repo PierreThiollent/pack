@@ -29,6 +29,10 @@ This file defines conventions that the coding agent (Pi) must follow when workin
 - Keep the `v` tag prefix convention (`v0.1.0`, `v0.2.0`, ...), matching `tag_prefix = "v"` in `cog.toml`.
 - Do not run release commands that create tags, bump versions, or rewrite history unless Pierre explicitly asks for it.
 
+## Workflow
+
+- Use Pi todo tracking for multi-step work and keep it updated step by step.
+
 ## Code style
 
 - Run `cargo fmt` before each commit (enforced by pre-commit hook)

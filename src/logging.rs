@@ -73,7 +73,6 @@ struct EventFields {
 pub enum LogDestination {
     ConsoleOnly,
     ConsoleAndFile(PathBuf),
-    #[allow(dead_code)]
     FileOnly(PathBuf),
 }
 

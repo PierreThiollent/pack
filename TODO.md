@@ -49,6 +49,12 @@
       Plus tard, décider si l'orchestrateur doit seulement annoncer le storage (`Running storage`) ou
       si le backend concret doit porter tous les logs d'upload détaillés.
 
+- [ ] Filtrer les logs internes des dépendances du scheduler
+      `tokio-cron-scheduler` émet actuellement des logs internes comme `Uninited` et
+      `Job creator created` au niveau INFO. Ils polluent la sortie CLI de `pack run`.
+      Plus tard, ajuster le filtre `tracing` pour conserver les logs INFO de pack tout en
+      masquant les logs INFO trop verbeux des dépendances.
+
 - [ ] Remplacer plus tard `Result<T, String>` par des erreurs typées avec `thiserror`
       Ce n'est pas nécessaire pour démarrer le logging, mais ce sera utile pour afficher
       des erreurs plus structurées quand compression, FTP/SFTP et réseau seront ajoutés.
@@ -76,31 +82,149 @@
       Décision v0.1 temporaire : conserver le format actuel local implicite pour ne pas changer
       l'expérience utilisateur juste avant la release.
 
-- [ ] V2 compressor : utiliser `pigz` automatiquement si disponible, sinon fallback `flate2`
-      Pour la première version du compressor, on garde `flate2` : c'est simple, portable,
-      testable, et suffisant pour valider le pipeline `dump → archive → tgz → storage`.
-      Limite connue : la compression gzip actuelle est mono-threadée et peut devenir un
-      goulot d'étranglement sur de gros dumps ou de grosses archives.
+- [x] Accélérer `tgz` avec un backend gzip parallèle intégré
+      Piste initiale : utiliser `pigz` automatiquement si disponible, sinon fallback `flate2`.
+      Décision finale : éviter une dépendance runtime externe et utiliser `gzp` directement dans
+      le binaire.
 
-      Décision V2 : reproduire l'approche de GoBackup pour `tgz` / `tar.gz` : détecter `pigz`
-      dans le `PATH`, l'utiliser quand il est disponible, et retomber automatiquement sur
-      `flate2` sinon. Cela donne un gain multi-thread rapide sans compliquer la compilation
-      ni la distribution de `pack` avec des dépendances natives intégrées.
+      Benchmarks locaux sur un dataset SQL-like d'environ 710 MB :
 
-      Points d'implémentation à prévoir :
-      - détecter `pigz` proprement et logger le backend choisi ;
-      - streamer `tar::Builder` vers `pigz.stdin` ;
-      - écrire `pigz.stdout` vers le fichier `.tar.gz` ;
-      - collecter/propager `stderr` et le code de sortie ;
-      - garantir le fallback `flate2` si `pigz` est absent ;
-      - ajouter des tests avec un faux binaire `pigz` dans un `PATH` temporaire.
+| Backend              | Niveau |   Temps |        Débit | Taille artifact |                      Comparaison |
+| -------------------- | -----: | ------: | -----------: | --------------: | -------------------------------: |
+| `flate2` actuel      | défaut | ~4.49 s |   ~151 MiB/s |       ~31.5 MiB |                         baseline |
+| `gzp + deflate_rust` |      3 | ~0.35 s | ~1 948 MiB/s |       ~39.8 MiB |  ~12.8x plus rapide, +26% taille |
+| `gzp + deflate_rust` |      4 | ~0.42 s | ~1 628 MiB/s |       ~33.9 MiB | ~10.8x plus rapide, +7.6% taille |
+| `gzp + deflate_rust` |      5 | ~0.47 s | ~1 440 MiB/s |       ~33.5 MiB |  ~9.6x plus rapide, +6.3% taille |
+| `gzp + deflate_rust` |      6 | ~0.85 s |   ~792 MiB/s |       ~32.7 MiB |  ~5.3x plus rapide, +3.8% taille |
 
-      Piste future après V2 : évaluer `gzp`, la librairie utilisée par `crabz`, si on veut un
-      backend gzip multi-threadé intégré au binaire plutôt qu'un process externe. `gzp` fournit
-      un `Write` parallèle compatible avec notre pipeline streaming, mais ses versions récentes
-      semblent privilégier des backends natifs C (`zlib-ng` / `libdeflate`) plutôt qu'un backend
-      100% Rust pur. Il faudra donc benchmarker et vérifier l'impact sur la portabilité, la
-      compilation, les releases et la surface de sécurité avant d'en faire un backend officiel.
+      Choix : `gzp + deflate_rust` niveau 4, très rapide et avec une taille d'archive encore
+      raisonnable. `flate2` n'est plus une dépendance directe de `pack`; il reste seulement une
+      dépendance transitive de `gzp` via `flate2/rust_backend`.
+
+      Note : `zlib-ng` / `libdeflate` a été testé comme piste native, mais `zlib-ng` nécessite
+      `cmake` au build sur la machine testée. On garde donc le backend Rust pur pour la
+      portabilité.
+
+## Daemon / logs
+
+- [ ] Améliorer plus tard le message de démarrage concurrent de `pack start`
+      Test manuel : un premier `pack start` démarre correctement en arrière-plan, crée
+      `~/.pack/pack.pid` et écrit dans `~/.pack/pack.log`. Si un deuxième `pack start` est lancé
+      pendant que le premier tourne, `daemonize` échoue bien à locker le PID file côté child
+      (`unable to lock pid file`) et l'erreur est visible dans le terminal. Le comportement est donc
+      compréhensible, mais l'UX reste un peu contradictoire car le parent affiche d'abord
+      `Pack daemon started.`.
+
+      Amélioration possible plus tard : ajouter un petit handshake parent/child avec un pipe Unix.
+      Le parent créerait le pipe avant `daemonize`, puis attendrait un message du child avant
+      d'afficher le succès. Le child écrirait par exemple `READY` dans le pipe seulement après les
+      étapes minimales : PID file locké/écrit par `daemonize`, logging fichier initialisé, config
+      chargée, scheduler démarré. Si le child échoue avant `READY`, le parent pourrait afficher une
+      erreur claire au lieu de `Pack daemon started.`.
+
+      Pour l'instant, ne pas implémenter ce handshake : le comportement actuel est acceptable et on
+      garde le code simple.
+
+- [x] Tester `pack start` avec la vraie config
+      Vérifié avec `/Users/pierrethiollent/.pack/pack.yml` : la commande rend la main immédiatement,
+      `~/.pack/pack.pid` contient un PID non vide, les logs runtime vont dans `~/.pack/pack.log`,
+      et le job cron `*/3 * * * *` déclenche bien le backup en arrière-plan. Le backup a échoué au
+      moment de l'upload SFTP parce que Tailscale n'était pas lancé, ce qui est normal pour ce test.
+
+- [x] Vérifier que le PID file pointe vers le vrai daemon
+      Après `pack start`, lancer `ps -p $(cat ~/.pack/pack.pid) -o pid,ppid,command` et vérifier que
+      le process existe encore, que le PID correspond au daemon et pas au parent déjà terminé.
+
+- [x] Vérifier que `pack start -c <path>` utilise le bon fichier de config
+      Vérifié avec une config temporaire : `pack start -c <path>` écrit bien dans
+      `~/.pack/pack.log` une ligne `Loaded config from custom path: ...` pointant vers le fichier
+      attendu.
+
+- [x] Vérifier que les logs runtime de `pack start` ne sortent pas dans la console
+      Vérifié avec une config temporaire : stdout contient uniquement les 3 lignes du parent
+      (`Pack daemon started`, log file, PID file), stderr est vide, et les logs runtime du
+      child (`Loaded config`, `Started in background`, scheduler) vont uniquement dans
+      `~/.pack/pack.log`.
+
+- [x] Tester les chemins relatifs en mode daemon
+      Vérifié avec une config temporaire lancée depuis son répertoire : `workdir: ./workdir`,
+      `archive.includes: ./source/file.txt` et storage local `path: ./backups`. Comme GoBackup,
+      `pack start` conserve le répertoire de lancement comme working directory du daemon. Le backup
+      schedulé a réussi et l'artifact a été créé dans le dossier relatif attendu `./backups`.
+
+- [x] Tester l'arrêt du daemon pendant un backup en cours
+      Vérifié avec `/Users/pierrethiollent/.pack/pack.yml` pendant un backup réel. Après
+      `kill $(cat ~/.pack/pack.pid)`, pack loggue bien `[Run] Received shutdown signal, stopping
+      scheduler...`, laisse le backup en cours se terminer, upload l'artifact SFTP, loggue
+      `Backup run completed`, puis le process s'arrête. Le dossier temporaire du run
+      `/Users/pierrethiollent/Desktop/pack-1782803700-fT5Z3w` a bien été supprimé.
+
+- [ ] Tester `pack start` avec un binaire release/installé
+      Ne pas valider uniquement avec `cargo run -- start`. Tester aussi avec le binaire installé, car
+      daemonize/fork peut révéler des différences selon le contexte d'exécution.
+
+- [ ] Ajouter plus tard un test d'intégration automatisé pour `pack start`
+      Quand le comportement concurrent et le cleanup du PID file seront stabilisés : créer une config
+      temporaire, lancer `pack start -c ...`, attendre le PID file et une ligne de log, tuer le daemon,
+      puis nettoyer le PID file. Ne pas ajouter ce test trop tôt pour éviter un test flaky.
+
+- [x] Tester l'arrêt du daemon `pack start`
+      Vérifié avec une config temporaire : `kill $(cat ~/.pack/pack.pid)` arrête bien le process
+      daemon (`ps` ne retrouve plus le PID après l'arrêt). En revanche, aucun log d'arrêt propre
+      n'est écrit pour l'instant et `~/.pack/pack.pid` reste présent avec l'ancien PID. Il faudra
+      ajouter le signal handling/cleanup explicite, ou décider de s'appuyer uniquement sur le lock
+      libéré par le système.
+
+- [x] Ajouter un log d'arrêt et un shutdown propre pour `pack start`
+      Fait : `scheduler::wait_for_shutdown_signal()` écoute maintenant `SIGTERM` en plus de
+      `Ctrl+C` / `SIGINT`, via `tokio::signal::unix::signal(SignalKind::terminate())` et
+      `tokio::select!`.
+
+      Test manuel validé avec `pack start -c <config temporaire>` puis
+      `kill $(cat ~/.pack/pack.pid)` : le process s'arrête et `~/.pack/pack.log` contient bien
+      `[Run] Received shutdown signal, stopping scheduler...` avant l'arrêt. Le PID file peut rester
+      sur disque : c'est acceptable car `daemonize` utilise un lock système libéré à la mort du
+      process et réécrit le fichier au prochain démarrage.
+
+- [ ] Ajouter une commande `pack stop`
+      Plus tard, lire `~/.pack/pack.pid`, envoyer un signal d'arrêt au daemon, afficher un message
+      clair, puis gérer les cas : aucun PID file, process déjà arrêté, PID file stale, permission
+      refusée. Cette commande remplacera l'usage manuel de `kill $(cat ~/.pack/pack.pid)`.
+
+- [x] Tester le comportement avec un PID file stale
+      Vérifié en écrivant un faux ancien PID (`999999`) dans `~/.pack/pack.pid` avant de relancer
+      `pack start -c <config temporaire>`. `daemonize` redémarre correctement, remplace le contenu
+      du PID file par le nouveau PID du daemon, et le scheduler démarre. Le fichier peut donc rester
+      sur disque après arrêt : le point important est que le lock système soit libéré quand le process
+      meurt.
+
+- [x] Tester `pack start` avec un cron fréquent
+      Vérifié avec une config temporaire, un petit fichier archivé, un storage local temporaire et
+      `cron: "*/10 * * * * *"`. Le daemon a déclenché deux backups successifs à 10 secondes
+      d'intervalle, créé deux artifacts `.tar.gz`, et les logs sont restés lisibles dans
+      `~/.pack/pack.log`.
+
+- [x] Tester les erreurs de démarrage de `pack start`
+      Testé avec un fichier de config absent et un YAML invalide. L'erreur est bien écrite dans
+      `~/.pack/pack.log` côté child (`Failed to read config file` / `Failed to parse config file`),
+      et le process daemon meurt ensuite. En revanche, le parent affiche `Pack daemon started.` et
+      `~/.pack/pack.pid` reste avec le PID mort. Pour l'instant, on accepte ce fonctionnement simple
+      inspiré de GoBackup : utiliser `pack run` pour valider la config avant de lancer le daemon.
+
+- [ ] Ajouter une rotation des logs fichier
+      `pack run` écrit maintenant aussi dans `~/.pack/pack.log`, et `pack start` utilisera ce
+      fichier pour le mode daemon. Comme GoBackup, la première version est append-only, sans
+      rotation. Plus tard, ajouter une rotation pour éviter une croissance illimitée : taille max,
+      nombre de fichiers conservés, et éventuellement âge max.
+
+## Release / binaire
+
+- [ ] Optimiser la taille du binaire release
+      Le binaire release est déjà autour de 6 MB, ce qui reste raisonnable vu les dépendances
+      embarquées (`tokio`, scheduler, FTP/SFTP, TLS, YAML, tracing, `gzp`, etc.).
+      Plus tard, tester un profil release optimisé taille :
+      `strip = true`, `lto = true`, `codegen-units = 1`, éventuellement `panic = "abort"`.
+      Mesurer le gain réel et l'impact sur le temps de compilation avant de l'activer.
 
 ## Archive
 
@@ -254,20 +378,20 @@
 ## Changelog / release
 
 - [x] Mettre en place Cocogitto pour valider les Conventional Commits.
-  Fait : ajout de `cog.toml`, d'un hook `.githooks/commit-msg` qui lance `cog verify --file`,
-  et d'une documentation rapide dans `CONTRIBUTING.md`.
+      Fait : ajout de `cog.toml`, d'un hook `.githooks/commit-msg` qui lance `cog verify --file`,
+      et d'une documentation rapide dans `CONTRIBUTING.md`.
 
 - [x] Vérifier les anciens commits avec Cocogitto.
-  Fait : `cog check --from-latest-tag` a identifié 11 commits non conformes depuis `v0.1.0`,
-  puis une nouvelle vérification après correction a confirmé : `No errored commits`.
+      Fait : `cog check --from-latest-tag` a identifié 11 commits non conformes depuis `v0.1.0`,
+      puis une nouvelle vérification après correction a confirmé : `No errored commits`.
 
 - [x] Faire une repasse sur l'historique non conforme.
-  Fait : les 11 commits depuis `v0.1.0` ont été réécrits en Conventional Commits via rebase interactif,
-  puis poussés sur la remote avec `git push --force-with-lease`. Attention pour la prochaine fois :
-  cette opération réécrit l'historique Git et change les SHA des commits concernés et de leurs enfants.
-  Référence : https://docs.cocogitto.io/guide/edit.html
+      Fait : les 11 commits depuis `v0.1.0` ont été réécrits en Conventional Commits via rebase interactif,
+      puis poussés sur la remote avec `git push --force-with-lease`. Attention pour la prochaine fois :
+      cette opération réécrit l'historique Git et change les SHA des commits concernés et de leurs enfants.
+      Référence : <https://docs.cocogitto.io/guide/edit.html>
 
 - [ ] Évaluer si Cocogitto suffit pour le changelog automatique.
-  Décision actuelle : commencer avec Cocogitto plutôt que git-cliff, car il couvre déjà la validation
-  Conventional Commits, le bump de version et la génération de changelog. Garder git-cliff comme option
-  future seulement si le changelog de Cocogitto devient trop limité.
+      Décision actuelle : commencer avec Cocogitto plutôt que git-cliff, car il couvre déjà la validation
+      Conventional Commits, le bump de version et la génération de changelog. Garder git-cliff comme option
+      future seulement si le changelog de Cocogitto devient trop limité.
