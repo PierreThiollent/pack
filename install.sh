@@ -17,13 +17,17 @@ say() {
   printf '%s\n' "$*"
 }
 
-err() {
-  printf 'error: %s\n' "$*" >&2
+fail() {
+  printf '\n❌ %s\n' "$1" >&2
+  if [ "$#" -gt 1 ]; then
+    shift
+    printf '%s\n' "$@" >&2
+  fi
 }
 
 need_cmd() {
   if ! command -v "$1" >/dev/null 2>&1; then
-    err "$1 is required but was not found"
+    fail "Missing required command: $1"
     exit 1
   fi
 }
@@ -42,7 +46,7 @@ detect_platform() {
       printf 'darwin'
       ;;
     *)
-      err "unsupported operating system: $(uname -s)"
+      fail "Unsupported operating system: $(uname -s)" "" "Supported operating systems:" "  linux" "  darwin"
       exit 1
       ;;
   esac
@@ -57,7 +61,7 @@ detect_arch() {
       printf 'arm64'
       ;;
     *)
-      err "unsupported architecture: $(uname -m)"
+      fail "Unsupported architecture: $(uname -m)" "" "Supported architectures:" "  amd64" "  arm64"
       exit 1
       ;;
   esac
@@ -92,7 +96,7 @@ main() {
   fi
 
   if [ -z "${version}" ]; then
-    err "failed to resolve latest ${bin} release"
+    fail "Failed to resolve latest ${bin} release" "" "Please check that GitHub releases are reachable."
     exit 1
   fi
 
@@ -107,40 +111,48 @@ main() {
 
   trap 'rm -rf "${tmp_dir}"' EXIT
 
-  say "pack installer"
-  say "  version:     ${version}"
-  say "  platform:    ${platform}"
-  say "  arch:        ${arch}"
-  say "  install dir: ${install_dir}"
+  say "┌──────────────────────┐"
+  say "│ 🎒 pack installer    │"
+  say "└──────────────────────┘"
+  say ""
+  say "✓ version      ${version}"
+  say "✓ platform     ${platform} / ${arch}"
+  say "✓ install dir  ${install_dir}"
 
   if [ -x "${target_path}" ]; then
     current_version="v$(${target_path} --version | awk '{print $NF}')"
     if [ "${current_version}" = "${version}" ]; then
-      say "pack is already up to date (${version})."
+      say ""
+      say "ℹ️  pack is already up to date (${version})."
       exit 0
     fi
 
-    say "upgrading from ${current_version} to ${version}"
+    say ""
+    say "→ upgrading    ${current_version} to ${version}"
   fi
 
-  say "downloading ${package}"
-  if ! curl -fL "${package_url}" -o "${archive_path}"; then
-    err "failed to download ${package_url}"
+  say ""
+  say "→ downloading  ${package}"
+  if ! curl -fsSL "${package_url}" -o "${archive_path}"; then
+    fail "Failed to download release archive" "" "URL:" "  ${package_url}" "" "Please check that this release exists and provides this platform asset."
     exit 1
   fi
 
   tar -xzf "${archive_path}" -C "${tmp_dir}"
 
   if [ ! -f "${extracted_bin}" ]; then
-    err "release archive does not contain ${bin}"
+    fail "Release archive does not contain ${bin}"
     exit 1
   fi
 
   chmod +x "${extracted_bin}"
+  say "→ installing   ${bin}"
   install_binary "${extracted_bin}"
   mkdir -p "${HOME}/.pack"
 
-  say "pack ${version} has been installed to ${target_path}."
+  say ""
+  say "✅ Done"
+  say "   pack ${version} installed to ${target_path}"
 }
 
 main "$@"
