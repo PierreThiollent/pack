@@ -2,6 +2,7 @@ use crate::archive::ArchiveConfig;
 use crate::compressor::CompressorConfig;
 use crate::database::DatabaseConfig;
 use crate::logging::{LogTag, tag};
+use crate::notifier::NotifierConfig;
 use crate::paths;
 use crate::scheduler::ScheduleConfig;
 use crate::storage::StorageConfig;
@@ -33,6 +34,10 @@ pub struct Model {
     /// Storages where backups will be copied or uploaded, keyed by name
     #[serde(default)]
     pub storages: HashMap<String, StorageConfig>,
+
+    /// Notifiers used to report backup success or failure, keyed by name
+    #[serde(default)]
+    pub notifiers: HashMap<String, NotifierConfig>,
 
     /// Files and directories to include in the backup archive
     pub archive: Option<ArchiveConfig>,
@@ -105,8 +110,30 @@ pub fn load_config(path: &str) -> Config {
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
-    for model_name in config.models.keys() {
+    for (model_name, model) in &config.models {
         validate_model_name(model_name)?;
+
+        for (notifier_name, notifier_config) in &model.notifiers {
+            validate_notifier_config(model_name, notifier_name, notifier_config)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_notifier_config(
+    model_name: &str,
+    notifier_name: &str,
+    notifier_config: &NotifierConfig,
+) -> Result<(), String> {
+    match notifier_config {
+        NotifierConfig::Discord(config) => {
+            if config.url.trim().is_empty() {
+                return Err(format!(
+                    "Model `{model_name}` notifier `{notifier_name}` has an empty Discord URL"
+                ));
+            }
+        }
     }
 
     Ok(())
@@ -781,6 +808,82 @@ models:
 
         assert!(archive.includes.is_empty());
         assert_eq!(archive.excludes, vec!["~/Desktop/test/cache"]);
+    }
+
+    #[test]
+    fn parse_discord_notifier_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    notifiers:
+      discord:
+        type: discord
+        url: https://discord.com/api/webhooks/example
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let notifier = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .notifiers
+            .get("discord")
+            .unwrap();
+
+        match notifier {
+            NotifierConfig::Discord(config) => {
+                assert_eq!(config.url, "https://discord.com/api/webhooks/example");
+                assert!(config.on_success);
+                assert!(config.on_failure);
+            }
+        }
+    }
+
+    #[test]
+    fn parse_discord_notifier_with_custom_events() {
+        let yaml = r#"
+models:
+  my_app:
+    notifiers:
+      discord:
+        type: discord
+        url: https://discord.com/api/webhooks/example
+        on_success: false
+        on_failure: true
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let notifier = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .notifiers
+            .get("discord")
+            .unwrap();
+
+        match notifier {
+            NotifierConfig::Discord(config) => {
+                assert!(!config.on_success);
+                assert!(config.on_failure);
+            }
+        }
+    }
+
+    #[test]
+    fn validate_config_rejects_empty_discord_url() {
+        let yaml = r#"
+models:
+  my_app:
+    notifiers:
+      discord:
+        type: discord
+        url: ""
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("empty Discord URL"));
     }
 
     #[test]

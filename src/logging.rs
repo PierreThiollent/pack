@@ -24,6 +24,7 @@ pub enum LogTag<'a> {
     Archive,
     Compressor(Option<&'a str>),
     Model(&'a str),
+    Notifier(&'a str),
     Storage(&'a str),
     Database {
         database_type: &'a str,
@@ -391,6 +392,7 @@ fn tag_text(log_tag: LogTag<'_>) -> String {
         LogTag::Compressor(Some(compressor)) => format!("[Compressor: {compressor}]"),
         LogTag::Compressor(None) => "[Compressor]".to_string(),
         LogTag::Model(model_name) => format!("[Model: {model_name}]"),
+        LogTag::Notifier(notifier_name) => format!("[Notifier: {notifier_name}]"),
         LogTag::Storage(storage_name) => format!("[Storage: {storage_name}]"),
         LogTag::Database {
             database_type,
@@ -407,6 +409,7 @@ fn tag_color_from_text(text: &str) -> LogColor {
     // so color detection is based on the rendered tag string.
     if text.starts_with("[Config]")
         || text.starts_with("[Storage:")
+        || text.starts_with("[Notifier:")
         || text.starts_with("[FTP]")
         || text.starts_with("[SFTP]")
     {

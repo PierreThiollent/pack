@@ -20,6 +20,12 @@ models:
         - ~/Documents/myapp/tmp
     compress_with:
       type: tgz
+    notifiers:
+      discord:
+        type: discord
+        url: $DISCORD_WEBHOOK_URL
+        on_success: true
+        on_failure: true
     storages:
       local:
         type: local
