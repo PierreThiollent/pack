@@ -4,6 +4,7 @@ use crate::config::{Config, Model, validate_model_name};
 use crate::cycler::{self, Cycler};
 use crate::database;
 use crate::logging::{LogTag, tag};
+use crate::notifier::{self, NotificationEvent};
 use crate::paths;
 use crate::storage;
 use std::path::{Path, PathBuf};
@@ -85,6 +86,17 @@ fn run_models(config: &Config, run_directory: &Path) -> Result<(), String> {
 fn run_model_pipeline(name: &str, model: &Model, run_directory: &Path) -> Result<(), String> {
     info!(pack_tag = %tag(LogTag::Model(name)), "Running model");
 
+    let result = run_model_pipeline_steps(name, model, run_directory);
+    let event = match &result {
+        Ok(()) => NotificationEvent::success(name),
+        Err(error) => NotificationEvent::failure(name, error.clone()),
+    };
+    notifier::notify_model(model, &event);
+
+    result
+}
+
+fn run_model_pipeline_steps(name: &str, model: &Model, run_directory: &Path) -> Result<(), String> {
     let dump_directory = create_dump_directory(run_directory, name)?;
     run_model_databases(model, &dump_directory)?;
     archive::run(model.archive.as_ref(), &dump_directory)?;
@@ -209,6 +221,7 @@ mod tests {
                 schedule: None,
                 databases: HashMap::new(),
                 storages: HashMap::new(),
+                notifiers: HashMap::new(),
                 archive: None,
                 compress_with: None,
             },

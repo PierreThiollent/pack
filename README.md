@@ -95,6 +95,13 @@ models:
     compress_with:
       type: tgz
 
+    notifiers:
+      discord:
+        type: discord
+        url: $DISCORD_WEBHOOK_URL
+        on_success: true
+        on_failure: true
+
     storages:
       local:
         type: local
@@ -227,6 +234,45 @@ This produces a `.tar.gz` artifact named with the model and timestamp, for examp
 ```text
 my_site-20260617-134625.tar.gz
 ```
+
+## Notifications
+
+A model can send a notification at the end of its backup. Notifications are sent after the full pipeline: dump, archive, compression, and upload.
+
+For now, `pack` supports Discord webhooks.
+
+### Discord
+
+```yml
+notifiers:
+  discord:
+    type: discord
+    url: $DISCORD_WEBHOOK_URL
+    on_success: true
+    on_failure: true
+```
+
+Fields:
+
+- `url`: Discord webhook URL. Required.
+- `on_success`: send a notification when the backup succeeds. Defaults to `true`.
+- `on_failure`: send a notification when the backup fails. Defaults to `true`.
+
+Success notification example:
+
+```text
+✅ Backup `my_site` completed successfully
+```
+
+Failure notification example:
+
+```text
+⛔️ Backup `my_site` failed
+
+Failed to upload backup
+```
+
+If sending the notification fails, the backup result does not change: `pack` logs a warning and finishes the run according to the actual backup result.
 
 ## Storages
 
