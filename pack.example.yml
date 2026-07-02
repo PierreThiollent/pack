@@ -26,6 +26,18 @@ models:
         url: $DISCORD_WEBHOOK_URL
         on_success: true
         on_failure: true
+      mail:
+        type: mail
+        host: smtp.example.com
+        port: 587
+        encryption: start_tls
+        username: $SMTP_USERNAME
+        password: $SMTP_PASSWORD
+        from: backup@example.com
+        to:
+          - admin@example.com
+        on_success: true
+        on_failure: true
     storages:
       local:
         type: local

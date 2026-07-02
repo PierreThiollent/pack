@@ -82,7 +82,7 @@ models:
         password: secret
 
     schedule:
-      cron: "5 4 * * sun"
+      cron: '5 4 * * sun'
 
     archive:
       includes:
@@ -99,6 +99,18 @@ models:
       discord:
         type: discord
         url: $DISCORD_WEBHOOK_URL
+        on_success: true
+        on_failure: true
+      mail:
+        type: mail
+        host: smtp.example.com
+        port: 587
+        encryption: start_tls
+        username: $SMTP_USERNAME
+        password: $SMTP_PASSWORD
+        from: backup@example.com
+        to:
+          - admin@example.com
         on_success: true
         on_failure: true
 
@@ -158,6 +170,8 @@ Each run creates a unique directory:
 
 The directory is removed at the end of the run, even when the backup fails.
 
+## Databases
+
 ### MySQL
 
 ```yml
@@ -173,7 +187,9 @@ databases:
 
 `database` is required. `host` defaults to `localhost`, `port` defaults to `3306`, and `username` defaults to `root`.
 
-### Archive includes and excludes
+## Archive
+
+### Includes and excludes
 
 ```yml
 archive:
@@ -191,7 +207,7 @@ Files and directories listed in `includes` are added to an intermediate tar arch
 
 An excluded path does not have to exist: if it matches nothing, it is simply ignored.
 
-### Schedule
+## Schedule
 
 A model can define a `schedule` block to run automatically with `pack run`:
 
@@ -199,7 +215,7 @@ A model can define a `schedule` block to run automatically with `pack run`:
 models:
   my_site:
     schedule:
-      cron: "5 4 * * sun"
+      cron: '5 4 * * sun'
 ```
 
 Cron expressions use the common 5-field syntax:
@@ -222,7 +238,7 @@ If a scheduled backup is still running when the next cron tick happens, the new 
 
 Interval schedules such as `every: 1day` / `at: 04:05` are planned but not implemented yet.
 
-### Compression
+## Compression
 
 ```yml
 compress_with:
@@ -234,45 +250,6 @@ This produces a `.tar.gz` artifact named with the model and timestamp, for examp
 ```text
 my_site-20260617-134625.tar.gz
 ```
-
-## Notifications
-
-A model can send a notification at the end of its backup. Notifications are sent after the full pipeline: dump, archive, compression, and upload.
-
-For now, `pack` supports Discord webhooks.
-
-### Discord
-
-```yml
-notifiers:
-  discord:
-    type: discord
-    url: $DISCORD_WEBHOOK_URL
-    on_success: true
-    on_failure: true
-```
-
-Fields:
-
-- `url`: Discord webhook URL. Required.
-- `on_success`: send a notification when the backup succeeds. Defaults to `true`.
-- `on_failure`: send a notification when the backup fails. Defaults to `true`.
-
-Success notification example:
-
-```text
-✅ Backup `my_site` completed successfully
-```
-
-Failure notification example:
-
-```text
-⛔️ Backup `my_site` failed
-
-Failed to upload backup
-```
-
-If sending the notification fails, the backup result does not change: `pack` logs a warning and finishes the run according to the actual backup result.
 
 ## Storages
 
@@ -396,6 +373,97 @@ The cycler only removes backups that are present in this state file. Files that 
 
 If deleting an old backup fails, the backup run still succeeds. `pack` logs a warning and keeps that backup in the cycler state so it can retry deletion on a future run.
 
+## Notifications
+
+A model can send a notification at the end of its backup. Notifications are sent after the full pipeline: dump, archive, compression, and upload.
+
+For now, `pack` supports Discord webhooks and SMTP email notifications.
+
+### Discord
+
+```yml
+notifiers:
+  discord:
+    type: discord
+    url: $DISCORD_WEBHOOK_URL
+    on_success: true
+    on_failure: true
+```
+
+Fields:
+
+- `url`: Discord webhook URL. Required.
+- `on_success`: send a notification when the backup succeeds. Defaults to `true`.
+- `on_failure`: send a notification when the backup fails. Defaults to `true`.
+
+Success notification example:
+
+```text
+✅ Backup `my_site` completed successfully
+```
+
+Failure notification example:
+
+```text
+⛔️ Backup `my_site` failed
+
+Failed to upload backup
+```
+
+### Mail / SMTP
+
+```yml
+notifiers:
+  mail:
+    type: mail
+    host: smtp.example.com
+    port: 587
+    encryption: start_tls
+    username: $SMTP_USERNAME
+    password: $SMTP_PASSWORD
+    from: backup@example.com
+    to:
+      - admin@example.com
+      - ops@example.com
+    on_success: true
+    on_failure: true
+```
+
+Fields:
+
+- `host`: SMTP server hostname. Required.
+- `port`: SMTP server port. Defaults to `587`.
+- `encryption`: SMTP transport security mode. Defaults to `start_tls`. Supported values: `start_tls`, `tls`, `none`.
+- `username`: SMTP username. Optional unless `password` is set or `from` is omitted.
+- `password`: SMTP password. Optional. If set, `username` must also be set.
+- `from`: sender address. Optional; defaults to `username` when omitted.
+- `to`: recipient list. Required, must contain at least one address.
+- `on_success`: send a notification when the backup succeeds. Defaults to `true`.
+- `on_failure`: send a notification when the backup fails. Defaults to `true`.
+
+Success email body example:
+
+```text
+Backup completed successfully.
+
+Model: my_site
+Status: success
+```
+
+Failure email body example:
+
+```text
+Backup failed.
+
+Model: my_site
+Status: failure
+
+Error:
+Failed to upload backup
+```
+
+If sending the notification fails, the backup result does not change: `pack` logs a warning and finishes the run according to the actual backup result.
+
 ## Commands
 
 ### `pack perform`
@@ -444,11 +512,11 @@ kill $(cat ~/.pack/pack.pid)
 
 Log destinations depend on the command:
 
-| Command | Terminal | Log file |
-|---|---:|---:|
-| `pack perform` | yes | no |
-| `pack run` | yes | `~/.pack/pack.log` |
-| `pack start` | startup message only | `~/.pack/pack.log` |
+| Command        |             Terminal |           Log file |
+| -------------- | -------------------: | -----------------: |
+| `pack perform` |                  yes |                 no |
+| `pack run`     |                  yes | `~/.pack/pack.log` |
+| `pack start`   | startup message only | `~/.pack/pack.log` |
 
 `pack run` and `pack start` create `~/.pack/pack.log` automatically when needed. Terminal logs can be colored; file logs are written without ANSI color codes.
 
