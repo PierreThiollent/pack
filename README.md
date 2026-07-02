@@ -101,6 +101,11 @@ models:
         url: $DISCORD_WEBHOOK_URL
         on_success: true
         on_failure: true
+      slack:
+        type: slack
+        url: $SLACK_WEBHOOK_URL
+        on_success: true
+        on_failure: true
       mail:
         type: mail
         host: smtp.example.com
@@ -377,7 +382,7 @@ If deleting an old backup fails, the backup run still succeeds. `pack` logs a wa
 
 A model can send a notification at the end of its backup. Notifications are sent after the full pipeline: dump, archive, compression, and upload.
 
-For now, `pack` supports Discord webhooks and SMTP email notifications.
+For now, `pack` supports Discord webhooks, Slack incoming webhooks, and SMTP email notifications.
 
 ### Discord
 
@@ -393,6 +398,37 @@ notifiers:
 Fields:
 
 - `url`: Discord webhook URL. Required.
+- `on_success`: send a notification when the backup succeeds. Defaults to `true`.
+- `on_failure`: send a notification when the backup fails. Defaults to `true`.
+
+Success notification example:
+
+```text
+✅ Backup `my_site` completed successfully
+```
+
+Failure notification example:
+
+```text
+⛔️ Backup `my_site` failed
+
+Failed to upload backup
+```
+
+### Slack
+
+```yml
+notifiers:
+  slack:
+    type: slack
+    url: $SLACK_WEBHOOK_URL
+    on_success: true
+    on_failure: true
+```
+
+Fields:
+
+- `url`: Slack incoming webhook URL. Required.
 - `on_success`: send a notification when the backup succeeds. Defaults to `true`.
 - `on_failure`: send a notification when the backup fails. Defaults to `true`.
 

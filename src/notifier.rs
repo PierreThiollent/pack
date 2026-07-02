@@ -1,11 +1,13 @@
 pub mod discord;
 pub mod mail;
+pub mod slack;
 pub mod webhook;
 
 use crate::config::Model;
 use crate::logging::{LogTag, tag};
 use crate::notifier::discord::DiscordConfig;
 use crate::notifier::mail::MailConfig;
+use crate::notifier::slack::SlackConfig;
 use serde::Deserialize;
 use tracing::{info, warn};
 
@@ -62,6 +64,9 @@ pub enum NotifierConfig {
 
     #[serde(rename = "mail")]
     Mail(MailConfig),
+
+    #[serde(rename = "slack")]
+    Slack(SlackConfig),
 }
 
 pub(crate) fn default_on_success() -> bool {
@@ -98,6 +103,7 @@ impl NotifierConfig {
         match self {
             NotifierConfig::Discord(config) => config,
             NotifierConfig::Mail(config) => config,
+            NotifierConfig::Slack(config) => config,
         }
     }
 

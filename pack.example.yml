@@ -26,6 +26,11 @@ models:
         url: $DISCORD_WEBHOOK_URL
         on_success: true
         on_failure: true
+      slack:
+        type: slack
+        url: $SLACK_WEBHOOK_URL
+        on_success: true
+        on_failure: true
       mail:
         type: mail
         host: smtp.example.com
