@@ -1,14 +1,13 @@
 pub mod discord;
+pub mod mail;
+pub mod webhook;
 
 use crate::config::Model;
 use crate::logging::{LogTag, tag};
 use crate::notifier::discord::DiscordConfig;
-use reqwest::blocking::Client;
+use crate::notifier::mail::MailConfig;
 use serde::Deserialize;
-use std::time::Duration;
 use tracing::{info, warn};
-
-const HTTP_TIMEOUT_SECONDS: u64 = 30;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotificationStatus {
@@ -41,12 +40,28 @@ impl NotificationEvent {
     }
 }
 
+/// Delivery conditions shared by all notifier types.
+///
+/// These fields decide whether a notifier is executed after a successful or
+/// failed backup run.
+#[derive(Debug, Deserialize)]
+pub struct NotificationTriggers {
+    #[serde(default = "default_on_success")]
+    pub on_success: bool,
+
+    #[serde(default = "default_on_failure")]
+    pub on_failure: bool,
+}
+
 /// Configuration for a notifier — the `type` field determines which variant is used.
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type")]
 pub enum NotifierConfig {
     #[serde(rename = "discord")]
     Discord(DiscordConfig),
+
+    #[serde(rename = "mail")]
+    Mail(MailConfig),
 }
 
 pub(crate) fn default_on_success() -> bool {
@@ -57,30 +72,62 @@ pub(crate) fn default_on_failure() -> bool {
     true
 }
 
+/// Common behavior required from every notifier backend.
+///
+/// Each backend owns its validation and delivery mechanism, while the shared
+/// default method keeps success/failure filtering consistent for all notifiers.
+pub(crate) trait Notifier {
+    fn validate(&self, model_name: &str, notifier_name: &str) -> Result<(), String>;
+    fn triggers(&self) -> &NotificationTriggers;
+    fn send(&self, event: &NotificationEvent) -> Result<(), String>;
+
+    fn should_notify(&self, event: &NotificationEvent) -> bool {
+        match event.status {
+            NotificationStatus::Success => self.triggers().on_success,
+            NotificationStatus::Failure => self.triggers().on_failure,
+        }
+    }
+}
+
+impl NotifierConfig {
+    /// Return this enum variant as the common notifier trait object.
+    ///
+    /// New notifier types should only need to extend this dispatch point, then
+    /// implement `Notifier` in their own module.
+    fn as_dyn_notifier(&self) -> &dyn Notifier {
+        match self {
+            NotifierConfig::Discord(config) => config,
+            NotifierConfig::Mail(config) => config,
+        }
+    }
+
+    pub(crate) fn validate(&self, model_name: &str, notifier_name: &str) -> Result<(), String> {
+        self.as_dyn_notifier().validate(model_name, notifier_name)
+    }
+
+    fn should_notify(&self, event: &NotificationEvent) -> bool {
+        self.as_dyn_notifier().should_notify(event)
+    }
+
+    fn send(&self, event: &NotificationEvent) -> Result<(), String> {
+        self.as_dyn_notifier().send(event)
+    }
+}
+
+/// Execute the notifiers enabled for this model and event.
+///
+/// Notification failures are deliberately non-fatal: the backup result remains
+/// the source of truth, and notification errors are reported as warnings.
 pub fn notify_model(model: &Model, event: &NotificationEvent) {
     let notifiers_to_run: Vec<_> = model
         .notifiers
         .iter()
-        .filter(|(_, notifier_config)| should_notify(notifier_config, event))
+        .filter(|(_, notifier_config)| notifier_config.should_notify(event))
         .collect();
 
     if notifiers_to_run.is_empty() {
         return;
     }
-
-    let http_client = match Client::builder()
-        .timeout(Duration::from_secs(HTTP_TIMEOUT_SECONDS))
-        .build()
-    {
-        Ok(client) => client,
-        Err(error) => {
-            warn!(
-                pack_tag = %tag(LogTag::Run),
-                "Failed to create notification HTTP client: {error}"
-            );
-            return;
-        }
-    };
 
     for (notifier_name, notifier_config) in notifiers_to_run {
         info!(
@@ -88,28 +135,11 @@ pub fn notify_model(model: &Model, event: &NotificationEvent) {
             "Sending notification"
         );
 
-        if let Err(error) = send_one(&http_client, notifier_config, event) {
+        if let Err(error) = notifier_config.send(event) {
             warn!(
                 pack_tag = %tag(LogTag::Notifier(notifier_name)),
                 "Failed to send notification: {error}"
             );
         }
-    }
-}
-
-fn should_notify(notifier_config: &NotifierConfig, event: &NotificationEvent) -> bool {
-    match (notifier_config, &event.status) {
-        (NotifierConfig::Discord(config), NotificationStatus::Success) => config.on_success,
-        (NotifierConfig::Discord(config), NotificationStatus::Failure) => config.on_failure,
-    }
-}
-
-fn send_one(
-    http_client: &Client,
-    notifier_config: &NotifierConfig,
-    event: &NotificationEvent,
-) -> Result<(), String> {
-    match notifier_config {
-        NotifierConfig::Discord(config) => discord::send(http_client, config, event),
     }
 }
