@@ -248,7 +248,7 @@ to:
                 assert!(config.triggers.on_success);
                 assert!(config.triggers.on_failure);
             }
-            NotifierConfig::Discord(_) => panic!("expected mail notifier"),
+            _ => panic!("expected mail notifier"),
         }
     }
 
@@ -283,7 +283,7 @@ on_failure: true
                 assert!(!config.triggers.on_success);
                 assert!(config.triggers.on_failure);
             }
-            NotifierConfig::Discord(_) => panic!("expected mail notifier"),
+            _ => panic!("expected mail notifier"),
         }
     }
 
@@ -304,7 +304,7 @@ encryption: none
             NotifierConfig::Mail(config) => {
                 assert_eq!(config.encryption, MailEncryption::None);
             }
-            NotifierConfig::Discord(_) => panic!("expected mail notifier"),
+            _ => panic!("expected mail notifier"),
         }
     }
 
