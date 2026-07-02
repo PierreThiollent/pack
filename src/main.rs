@@ -6,6 +6,7 @@ mod daemon;
 mod database;
 mod logging;
 mod model;
+mod notifier;
 mod paths;
 mod scheduler;
 mod storage;

@@ -2,6 +2,7 @@ use crate::archive::ArchiveConfig;
 use crate::compressor::CompressorConfig;
 use crate::database::DatabaseConfig;
 use crate::logging::{LogTag, tag};
+use crate::notifier::NotifierConfig;
 use crate::paths;
 use crate::scheduler::ScheduleConfig;
 use crate::storage::StorageConfig;
@@ -33,6 +34,10 @@ pub struct Model {
     /// Storages where backups will be copied or uploaded, keyed by name
     #[serde(default)]
     pub storages: HashMap<String, StorageConfig>,
+
+    /// Notifiers used to report backup success or failure, keyed by name
+    #[serde(default)]
+    pub notifiers: HashMap<String, NotifierConfig>,
 
     /// Files and directories to include in the backup archive
     pub archive: Option<ArchiveConfig>,
@@ -105,8 +110,12 @@ pub fn load_config(path: &str) -> Config {
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
-    for model_name in config.models.keys() {
+    for (model_name, model) in &config.models {
         validate_model_name(model_name)?;
+
+        for (notifier_name, notifier_config) in &model.notifiers {
+            notifier_config.validate(model_name, notifier_name)?;
+        }
     }
 
     Ok(())
