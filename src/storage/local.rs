@@ -1,6 +1,8 @@
 use crate::logging::{LogTag, tag};
 use crate::paths;
-use crate::storage::{StorageRunResult, artifact_file_key, delete_old_backups, validate_file_key};
+use crate::storage::{
+    Storage, StorageRunResult, artifact_file_key, delete_old_backups, validate_file_key,
+};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use tracing::info;
@@ -70,6 +72,20 @@ impl<'a> Local<'a> {
     fn destination_path(&self) -> Result<PathBuf, String> {
         Ok(root_directory(&self.config.path)
             .join(artifact_file_key(self.source_path, "Local storage")?))
+    }
+}
+
+impl Storage for LocalConfig {
+    fn keep(&self) -> u32 {
+        self.keep
+    }
+
+    fn perform(
+        &self,
+        source_path: &Path,
+        delete_after_upload: &[String],
+    ) -> Result<StorageRunResult, String> {
+        Local::new(self, source_path).perform(delete_after_upload)
     }
 }
 

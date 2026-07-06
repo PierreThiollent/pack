@@ -1,6 +1,7 @@
 pub mod ftp;
 pub mod local;
 pub mod sftp;
+pub mod ssh;
 
 use crate::logging::{LogTag, tag};
 use crate::storage::ftp::FtpConfig;
@@ -30,28 +31,29 @@ pub struct StorageRunResult {
     pub deleted_file_keys: Vec<String>,
 }
 
-/// Store a backup artifact based on the configuration.
+/// Common behavior required from every storage backend.
 ///
-/// Dispatches to the correct storage implementation (local, FTP, SFTP, …).
+/// The enum remains responsible for YAML parsing, while each concrete config
+/// owns its upload and retention cleanup behavior.
+pub(crate) trait Storage {
+    fn keep(&self) -> u32;
+
+    fn perform(
+        &self,
+        source_path: &Path,
+        delete_after_upload: &[String],
+    ) -> Result<StorageRunResult, String>;
+}
+
+/// Store a backup artifact based on the configuration.
 pub fn run(
     config: &StorageConfig,
     source_path: &Path,
     delete_after_upload: &[String],
 ) -> Result<StorageRunResult, String> {
-    match config {
-        StorageConfig::Local(local_config) => {
-            let local = local::Local::new(local_config, source_path);
-            local.perform(delete_after_upload)
-        }
-        StorageConfig::Ftp(ftp_config) => {
-            let ftp = ftp::Ftp::new(ftp_config, source_path);
-            ftp.perform(delete_after_upload)
-        }
-        StorageConfig::Sftp(sftp_config) => {
-            let sftp = sftp::Sftp::new(sftp_config, source_path);
-            sftp.perform(delete_after_upload)
-        }
-    }
+    config
+        .as_dyn_storage()
+        .perform(source_path, delete_after_upload)
 }
 
 pub(crate) fn delete_old_backups<F>(file_keys: &[String], mut delete_one: F) -> Vec<String>
@@ -82,12 +84,20 @@ where
 }
 
 impl StorageConfig {
-    pub fn keep(&self) -> u32 {
+    /// Return this enum variant as the common storage trait object.
+    ///
+    /// New storage types should only need to extend this dispatch point, then
+    /// implement `Storage` in their own module.
+    fn as_dyn_storage(&self) -> &dyn Storage {
         match self {
-            StorageConfig::Local(config) => config.keep,
-            StorageConfig::Ftp(config) => config.keep,
-            StorageConfig::Sftp(config) => config.keep,
+            StorageConfig::Local(config) => config,
+            StorageConfig::Ftp(config) => config,
+            StorageConfig::Sftp(config) => config,
         }
+    }
+
+    pub fn keep(&self) -> u32 {
+        self.as_dyn_storage().keep()
     }
 }
 

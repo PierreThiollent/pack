@@ -1,7 +1,7 @@
 use crate::logging::{LogTag, tag};
 use crate::storage::{
-    StorageRunResult, delete_old_backups, remote_address, remote_directories, remote_file_path,
-    remote_file_path_from_key, socket_address, timeout_duration,
+    Storage, StorageRunResult, delete_old_backups, remote_address, remote_directories,
+    remote_file_path, remote_file_path_from_key, socket_address, timeout_duration,
 };
 use serde::Deserialize;
 use std::fs::File;
@@ -206,6 +206,20 @@ impl<'a> Ftp<'a> {
     /// Build the final remote path from configured directory and artifact name.
     fn remote_path(&self) -> Result<String, String> {
         remote_file_path(&self.config.path, self.source_path, "FTP")
+    }
+}
+
+impl Storage for FtpConfig {
+    fn keep(&self) -> u32 {
+        self.keep
+    }
+
+    fn perform(
+        &self,
+        source_path: &Path,
+        delete_after_upload: &[String],
+    ) -> Result<StorageRunResult, String> {
+        Ftp::new(self, source_path).perform(delete_after_upload)
     }
 }
 
