@@ -407,7 +407,7 @@ models:
                 assert_eq!(local_config.path, "~/Desktop/pack-backups");
                 assert_eq!(local_config.keep, 3);
             }
-            StorageConfig::Ftp(_) | StorageConfig::Sftp(_) => panic!("Expected local storage"),
+            _ => panic!("Expected local storage"),
         }
     }
 
@@ -451,7 +451,7 @@ models:
                 assert!(ftp_config.no_check_certificate);
                 assert_eq!(ftp_config.keep, 4);
             }
-            StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
+            _ => panic!("Expected FTP storage"),
         }
     }
 
@@ -486,7 +486,7 @@ models:
                 assert!(!ftp_config.no_check_certificate);
                 assert_eq!(ftp_config.keep, 0);
             }
-            StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
+            _ => panic!("Expected FTP storage"),
         }
     }
 
@@ -530,7 +530,7 @@ models:
                 assert_eq!(sftp_config.passphrase.as_deref(), Some("key-passphrase"));
                 assert_eq!(sftp_config.keep, 5);
             }
-            StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
+            _ => panic!("Expected SFTP storage"),
         }
     }
 
@@ -566,7 +566,87 @@ models:
                 assert!(sftp_config.passphrase.is_none());
                 assert_eq!(sftp_config.keep, 0);
             }
-            StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
+            _ => panic!("Expected SFTP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_scp_storage_with_all_fields() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: scp
+        host: scp.example.com
+        port: 2222
+        timeout: 30
+        path: /backup1/foo
+        username: user1
+        password: pass1
+        private_key: ~/.ssh/id_rsa
+        passphrase: key-passphrase
+        keep: 6
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Scp(scp_config) => {
+                assert_eq!(scp_config.host, "scp.example.com");
+                assert_eq!(scp_config.port, 2222);
+                assert_eq!(scp_config.timeout, 30);
+                assert_eq!(scp_config.path, "/backup1/foo");
+                assert_eq!(scp_config.username, "user1");
+                assert_eq!(scp_config.password.as_deref(), Some("pass1"));
+                assert_eq!(scp_config.private_key.as_deref(), Some("~/.ssh/id_rsa"));
+                assert_eq!(scp_config.passphrase.as_deref(), Some("key-passphrase"));
+                assert_eq!(scp_config.keep, 6);
+            }
+            _ => panic!("Expected SCP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_scp_storage_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: scp
+        host: scp.example.com
+        username: user1
+        password: pass1
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Scp(scp_config) => {
+                assert_eq!(scp_config.port, 22);
+                assert_eq!(scp_config.timeout, 300);
+                assert_eq!(scp_config.path, "/");
+                assert_eq!(scp_config.password.as_deref(), Some("pass1"));
+                assert!(scp_config.private_key.is_none());
+                assert!(scp_config.passphrase.is_none());
+                assert_eq!(scp_config.keep, 0);
+            }
+            _ => panic!("Expected SCP storage"),
         }
     }
 

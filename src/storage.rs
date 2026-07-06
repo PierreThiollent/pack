@@ -1,11 +1,13 @@
 pub mod ftp;
 pub mod local;
+pub mod scp;
 pub mod sftp;
 pub mod ssh;
 
 use crate::logging::{LogTag, tag};
 use crate::storage::ftp::FtpConfig;
 use crate::storage::local::LocalConfig;
+use crate::storage::scp::ScpConfig;
 use crate::storage::sftp::SftpConfig;
 use serde::Deserialize;
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -25,6 +27,9 @@ pub enum StorageConfig {
 
     #[serde(rename = "sftp")]
     Sftp(SftpConfig),
+
+    #[serde(rename = "scp")]
+    Scp(ScpConfig),
 }
 
 pub struct StorageRunResult {
@@ -93,6 +98,7 @@ impl StorageConfig {
             StorageConfig::Local(config) => config,
             StorageConfig::Ftp(config) => config,
             StorageConfig::Sftp(config) => config,
+            StorageConfig::Scp(config) => config,
         }
     }
 
@@ -199,6 +205,7 @@ mod tests {
     use super::*;
     use crate::storage::ftp::FtpConfig;
     use crate::storage::local::LocalConfig;
+    use crate::storage::scp::ScpConfig;
     use crate::storage::sftp::SftpConfig;
 
     #[test]
@@ -385,5 +392,22 @@ mod tests {
         });
 
         assert_eq!(config.keep(), 5);
+    }
+
+    #[test]
+    fn storage_config_keep_returns_scp_keep() {
+        let config = StorageConfig::Scp(ScpConfig {
+            host: "scp.example.com".to_string(),
+            port: 22,
+            timeout: 300,
+            path: "/backups".to_string(),
+            username: "user".to_string(),
+            password: Some("secret".to_string()),
+            private_key: None,
+            passphrase: None,
+            keep: 6,
+        });
+
+        assert_eq!(config.keep(), 6);
     }
 }

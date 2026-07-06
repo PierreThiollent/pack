@@ -352,6 +352,54 @@ Defaults:
 
 For SFTP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
 
+### SCP
+
+Password authentication:
+
+```yml
+storages:
+  scp:
+    type: scp
+    host: scp.example.com
+    port: 22
+    timeout: 300
+    path: backups/my_site
+    username: pack
+    password: secret
+    keep: 7
+```
+
+Private key authentication:
+
+```yml
+storages:
+  scp:
+    type: scp
+    host: scp.example.com
+    port: 22
+    timeout: 300
+    path: backups/my_site
+    username: pack
+    private_key: ~/.ssh/id_rsa
+    passphrase: optional-passphrase
+    keep: 7
+```
+
+Required fields: `host`, `username`, and at least one authentication method: `password` or `private_key`.
+
+Defaults:
+
+- `port`: `22`
+- `timeout`: `300` seconds
+- `path`: `/`
+- `keep`: `0`
+
+`passphrase` is only valid with `private_key` authentication.
+
+SCP uses an SSH connection internally, creates the remote directory with `mkdir -p`, uploads the artifact with SCP, then uses the same SSH connection for retention deletes.
+
+For SCP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
+
 ## Retention / cycler
 
 Each storage can define a `keep` value:

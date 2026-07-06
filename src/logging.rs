@@ -34,6 +34,7 @@ pub enum LogTag<'a> {
     Local,
     Ftp,
     Sftp,
+    Scp,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -403,6 +404,7 @@ fn tag_text(log_tag: LogTag<'_>) -> String {
         LogTag::Local => "[Local]".to_string(),
         LogTag::Ftp => "[FTP]".to_string(),
         LogTag::Sftp => "[SFTP]".to_string(),
+        LogTag::Scp => "[SCP]".to_string(),
     }
 }
 
@@ -414,6 +416,7 @@ fn tag_color_from_text(text: &str) -> LogColor {
         || text.starts_with("[Notifier:")
         || text.starts_with("[FTP]")
         || text.starts_with("[SFTP]")
+        || text.starts_with("[SCP]")
     {
         LogColor::Cyan
     } else if text.starts_with("[Run]") {
