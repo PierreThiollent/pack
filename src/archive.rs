@@ -63,11 +63,13 @@ fn create_archive(config: &ArchiveConfig, archive_path: &Path) -> Result<(), Str
     let archive_file = File::create(archive_path)
         .map_err(|error| format!("Failed to create archive file {archive_path:?}: {error}"))?;
     let mut builder = tar::Builder::new(archive_file);
-    let excludes = expanded_excludes(config);
+    let mut excludes = expanded_excludes(config);
 
     for include in &config.includes {
-        append_include(&mut builder, include, &excludes)?;
+        append_include(&mut builder, include, &mut excludes)?;
     }
+
+    warn_unmatched_excludes(&excludes);
 
     builder
         .finish()
@@ -80,7 +82,7 @@ fn create_archive(config: &ArchiveConfig, archive_path: &Path) -> Result<(), Str
 fn append_include(
     builder: &mut tar::Builder<File>,
     include: &str,
-    excludes: &[PathBuf],
+    excludes: &mut [ArchiveExclude],
 ) -> Result<(), String> {
     let source_path = PathBuf::from(paths::expand_tilde(include));
 
@@ -95,7 +97,7 @@ fn append_include(
 fn append_path(
     builder: &mut tar::Builder<File>,
     source_path: &Path,
-    excludes: &[PathBuf],
+    excludes: &mut [ArchiveExclude],
 ) -> Result<(), String> {
     if is_excluded(source_path, excludes) {
         info!(
@@ -117,7 +119,7 @@ fn append_path(
 fn append_directory(
     builder: &mut tar::Builder<File>,
     source_path: &Path,
-    excludes: &[PathBuf],
+    excludes: &mut [ArchiveExclude],
 ) -> Result<(), String> {
     let entries = match std::fs::read_dir(source_path) {
         Ok(entries) => entries,
@@ -159,18 +161,44 @@ fn append_directory(
     Ok(())
 }
 
-fn expanded_excludes(config: &ArchiveConfig) -> Vec<PathBuf> {
+#[derive(Debug)]
+struct ArchiveExclude {
+    path: PathBuf,
+    matched: bool,
+}
+
+fn expanded_excludes(config: &ArchiveConfig) -> Vec<ArchiveExclude> {
     config
         .excludes
         .iter()
-        .map(|exclude| PathBuf::from(paths::expand_tilde(exclude)))
+        .map(|exclude| ArchiveExclude {
+            path: PathBuf::from(paths::expand_tilde(exclude)),
+            matched: false,
+        })
         .collect()
 }
 
-fn is_excluded(source_path: &Path, excludes: &[PathBuf]) -> bool {
-    excludes
-        .iter()
-        .any(|exclude| source_path == exclude || source_path.starts_with(exclude))
+fn is_excluded(source_path: &Path, excludes: &mut [ArchiveExclude]) -> bool {
+    let mut excluded = false;
+
+    for exclude in excludes {
+        if source_path == exclude.path || source_path.starts_with(&exclude.path) {
+            exclude.matched = true;
+            excluded = true;
+        }
+    }
+
+    excluded
+}
+
+fn warn_unmatched_excludes(excludes: &[ArchiveExclude]) {
+    for exclude in excludes.iter().filter(|exclude| !exclude.matched) {
+        warn!(
+            pack_tag = %tag(LogTag::Archive),
+            "Archive exclude did not match any path: {}",
+            exclude.path.display()
+        );
+    }
 }
 
 /// Add a single file to the archive under its normalized archive entry path.
@@ -217,6 +245,16 @@ mod tests {
             includes: includes.into_iter().map(String::from).collect(),
             excludes: excludes.into_iter().map(String::from).collect(),
         }
+    }
+
+    fn make_excludes(paths: Vec<&str>) -> Vec<ArchiveExclude> {
+        paths
+            .into_iter()
+            .map(|path| ArchiveExclude {
+                path: PathBuf::from(path),
+                matched: false,
+            })
+            .collect()
     }
 
     #[test]
@@ -374,33 +412,41 @@ mod tests {
         std::fs::create_dir(&vanished_directory).unwrap();
         std::fs::remove_dir(&vanished_directory).unwrap();
 
-        let result = append_directory(&mut builder, &vanished_directory, &[]);
+        let mut excludes = Vec::new();
+
+        let result = append_directory(&mut builder, &vanished_directory, &mut excludes);
 
         assert!(result.is_ok());
     }
 
     #[test]
     fn is_excluded_matches_exact_path() {
-        let excludes = vec![PathBuf::from("/tmp/app/cache")];
+        let mut excludes = make_excludes(vec!["/tmp/app/cache"]);
 
-        assert!(is_excluded(Path::new("/tmp/app/cache"), &excludes));
+        assert!(is_excluded(Path::new("/tmp/app/cache"), &mut excludes));
+        assert!(excludes[0].matched);
     }
 
     #[test]
     fn is_excluded_matches_path_inside_excluded_directory() {
-        let excludes = vec![PathBuf::from("/tmp/app/cache")];
+        let mut excludes = make_excludes(vec!["/tmp/app/cache"]);
 
-        assert!(is_excluded(Path::new("/tmp/app/cache/file.txt"), &excludes));
+        assert!(is_excluded(
+            Path::new("/tmp/app/cache/file.txt"),
+            &mut excludes
+        ));
+        assert!(excludes[0].matched);
     }
 
     #[test]
     fn is_excluded_does_not_match_path_with_similar_prefix() {
-        let excludes = vec![PathBuf::from("/tmp/app/cache")];
+        let mut excludes = make_excludes(vec!["/tmp/app/cache"]);
 
         assert!(!is_excluded(
             Path::new("/tmp/app/cache-old/file.txt"),
-            &excludes
+            &mut excludes
         ));
+        assert!(!excludes[0].matched);
     }
 
     #[test]
