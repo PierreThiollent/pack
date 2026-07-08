@@ -141,6 +141,14 @@ pub fn notify_model(model: &Model, event: &NotificationEvent) {
             "Sending notification"
         );
 
+        if let Err(error) = notifier_config.validate(&event.model_name, notifier_name) {
+            warn!(
+                pack_tag = %tag(LogTag::Notifier(notifier_name)),
+                "Invalid notifier config: {error}"
+            );
+            continue;
+        }
+
         if let Err(error) = notifier_config.send(event) {
             warn!(
                 pack_tag = %tag(LogTag::Notifier(notifier_name)),

@@ -54,18 +54,29 @@ pub fn resolve_config_path(config_arg: Option<String>) -> String {
     paths::expand_tilde(&path)
 }
 
-pub(crate) fn validate_model_name(model_name: &str) -> Result<(), String> {
-    if model_name.is_empty() {
-        return Err("Model name cannot be empty".to_string());
+pub(crate) fn validate_named_key(kind: &str, key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err(format!("{kind} name cannot be empty"));
     }
 
-    if !model_name
+    if !key
         .chars()
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
         return Err(format!(
-            "Invalid model name `{model_name}`: use only ASCII letters, digits, `_` and `-`"
+            "Invalid {kind} name `{key}`: use only ASCII letters, digits, `_` and `-`"
         ));
+    }
+
+    Ok(())
+}
+
+fn validate_named_keys<'a>(
+    kind: &str,
+    keys: impl Iterator<Item = &'a String>,
+) -> Result<(), String> {
+    for key in keys {
+        validate_named_key(kind, key)?;
     }
 
     Ok(())
@@ -110,12 +121,12 @@ pub fn load_config(path: &str) -> Config {
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
-    for (model_name, model) in &config.models {
-        validate_model_name(model_name)?;
+    validate_named_keys("model", config.models.keys())?;
 
-        for (notifier_name, notifier_config) in &model.notifiers {
-            notifier_config.validate(model_name, notifier_name)?;
-        }
+    for model in config.models.values() {
+        validate_named_keys("database", model.databases.keys())?;
+        validate_named_keys("storage", model.storages.keys())?;
+        validate_named_keys("notifier", model.notifiers.keys())?;
     }
 
     Ok(())
@@ -978,11 +989,19 @@ foo: bar
     }
 
     #[test]
-    fn validate_config_accepts_safe_model_names() {
+    fn validate_config_accepts_safe_named_keys() {
         let yaml = r#"
 models:
   my_app:
-    databases: {}
+    databases:
+      main-db:
+        type: mysql
+        database: app
+    storages:
+      local_backup:
+        type: local
+        path: /tmp/backups
+    notifiers: {}
   wordpress-prod:
     databases: {}
 "#;
@@ -1007,23 +1026,74 @@ models:
     }
 
     #[test]
-    fn validate_model_name_accepts_safe_names() {
-        for model_name in ["my_app", "wordpress-prod", "client42"] {
+    fn validate_config_rejects_unsafe_database_names() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      ../escaped:
+        type: mysql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid database name"));
+    }
+
+    #[test]
+    fn validate_config_rejects_unsafe_storage_names() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      ../escaped:
+        type: local
+        path: /tmp/backups
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid storage name"));
+    }
+
+    #[test]
+    fn validate_config_rejects_unsafe_notifier_names() {
+        let yaml = r#"
+models:
+  my_app:
+    notifiers:
+      ../escaped:
+        type: discord
+        url: https://example.com/webhook
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid notifier name"));
+    }
+
+    #[test]
+    fn validate_named_key_accepts_safe_names() {
+        for key in ["my_app", "wordpress-prod", "client42"] {
             assert!(
-                validate_model_name(model_name).is_ok(),
-                "Model name should be accepted: {model_name}"
+                validate_named_key("model", key).is_ok(),
+                "Named key should be accepted: {key}"
             );
         }
     }
 
     #[test]
-    fn validate_model_name_rejects_unsafe_names() {
-        for model_name in [
+    fn validate_named_key_rejects_unsafe_names() {
+        for key in [
             "", "../foo", "foo/bar", "foo\\bar", ".hidden", "my.app", "my app",
         ] {
             assert!(
-                validate_model_name(model_name).is_err(),
-                "Model name should be rejected: {model_name}"
+                validate_named_key("model", key).is_err(),
+                "Named key should be rejected: {key}"
             );
         }
     }
