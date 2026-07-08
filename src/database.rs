@@ -1,6 +1,6 @@
 pub mod mysql;
 
-use crate::database::mysql::{MySQL, MySQLConfig};
+use crate::database::mysql::MySQLConfig;
 use serde::Deserialize;
 use std::path::Path;
 
@@ -20,14 +20,27 @@ impl DatabaseConfig {
     }
 }
 
-/// Run a database dump based on the configuration.
+/// Common behavior required from every database backend.
 ///
-/// Dispatches to the correct database implementation (MySQL, PostgreSQL, …).
-pub fn run(config: &DatabaseConfig, dump_path: &Path) -> Result<(), String> {
-    match config {
-        DatabaseConfig::MySQL(mysql_config) => {
-            let mysql = MySQL::new(mysql_config, dump_path);
-            mysql.perform()
+/// The enum remains responsible for YAML parsing, while each concrete config
+/// owns its dump behavior.
+pub(crate) trait Database {
+    fn perform(&self, dump_path: &Path) -> Result<(), String>;
+}
+
+impl DatabaseConfig {
+    /// Return this enum variant as the common database trait object.
+    ///
+    /// New database types should only need to extend this dispatch point, then
+    /// implement `Database` in their own module.
+    fn as_dyn_database(&self) -> &dyn Database {
+        match self {
+            DatabaseConfig::MySQL(config) => config,
         }
     }
+}
+
+/// Run a database dump based on the configuration.
+pub fn run(config: &DatabaseConfig, dump_path: &Path) -> Result<(), String> {
+    config.as_dyn_database().perform(dump_path)
 }

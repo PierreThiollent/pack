@@ -1,3 +1,4 @@
+use crate::database::Database;
 use serde::Deserialize;
 use std::path::Path;
 use std::process::Command;
@@ -34,6 +35,13 @@ fn default_mysql_username() -> String {
 pub struct MySQL<'a> {
     config: &'a MySQLConfig,
     dump_path: &'a Path,
+}
+
+impl Database for MySQLConfig {
+    fn perform(&self, dump_path: &Path) -> Result<(), String> {
+        let mysql = MySQL::new(self, dump_path);
+        mysql.perform()
+    }
 }
 
 impl<'a> MySQL<'a> {
