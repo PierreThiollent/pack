@@ -1,4 +1,4 @@
-use crate::database::Database;
+use crate::database::{Database, dump_file_path};
 use serde::Deserialize;
 use std::path::Path;
 use std::process::Command;
@@ -57,7 +57,7 @@ impl<'a> MySQL<'a> {
     ///
     /// This is a separate function so we can test the argument construction
     /// without actually running mysqldump.
-    pub fn build_args(&self) -> Vec<String> {
+    pub fn build_args(&self) -> Result<Vec<String>, String> {
         let mut args = vec![
             // Host (default "localhost" from config.rs)
             "--host".to_string(),
@@ -81,18 +81,18 @@ impl<'a> MySQL<'a> {
         args.push(self.config.database.clone());
 
         // Output file named after the database
-        let output_file = self.dump_path.join(format!("{}.sql", self.config.database));
+        let output_file = dump_file_path(self.dump_path, &self.config.database)?;
         args.push("--result-file".to_string());
         args.push(output_file.to_string_lossy().into_owned());
 
-        args
+        Ok(args)
     }
 
     /// Run `mysqldump` with the configured arguments.
     ///
     /// Returns `Ok(())` on success, or `Err(message)` if the subprocess fails.
     pub fn perform(&self) -> Result<(), String> {
-        let args = self.build_args();
+        let args = self.build_args()?;
 
         let output = Command::new("mysqldump")
             .args(&args)
@@ -132,7 +132,7 @@ mod tests {
         });
         let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
-        let args = mysql.build_args();
+        let args = mysql.build_args().unwrap();
         assert!(args.contains(&"--host".to_string()));
         assert!(args.contains(&"db.example.com".to_string()));
         assert!(args.contains(&"--port".to_string()));
@@ -144,7 +144,7 @@ mod tests {
         let config = make_config(|_| {});
         let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
-        let args = mysql.build_args();
+        let args = mysql.build_args().unwrap();
         assert!(args.contains(&"--port".to_string()));
         assert!(args.contains(&"3306".to_string()));
     }
@@ -154,7 +154,7 @@ mod tests {
         let config = make_config(|_| {});
         let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
-        let args = mysql.build_args();
+        let args = mysql.build_args().unwrap();
         // -u root
         let u_idx = args.iter().position(|a| a == "-u").unwrap();
         assert_eq!(args[u_idx + 1], "root");
@@ -170,7 +170,7 @@ mod tests {
         });
         let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
-        let args = mysql.build_args();
+        let args = mysql.build_args().unwrap();
         assert!(!args.contains(&"-u".to_string()));
     }
 
@@ -181,7 +181,7 @@ mod tests {
         });
         let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
-        let args = mysql.build_args();
+        let args = mysql.build_args().unwrap();
         assert!(args.contains(&"my_app_prod".to_string()));
     }
 
@@ -190,8 +190,18 @@ mod tests {
         let config = make_config(|_| {});
         let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
 
-        let args = mysql.build_args();
+        let args = mysql.build_args().unwrap();
         let rf_idx = args.iter().position(|a| a == "--result-file").unwrap();
         assert_eq!(args[rf_idx + 1], "/tmp/dumps/testdb.sql");
+    }
+
+    #[test]
+    fn build_args_rejects_unsafe_database_name() {
+        let config = make_config(|config| {
+            config.database = "../escaped".to_string();
+        });
+        let mysql = MySQL::new(&config, Path::new("/tmp/dumps"));
+
+        assert!(mysql.build_args().is_err());
     }
 }

@@ -196,6 +196,43 @@ models:
                 assert_eq!(cfg.username, "root");
                 assert_eq!(cfg.password.as_deref(), Some("secret123"));
             }
+            _ => panic!("Expected MySQL database"),
+        }
+    }
+
+    #[test]
+    fn parse_postgresql_with_all_fields() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+        host: db.example.com
+        port: 5433
+        database: my_production_db
+        username: postgres
+        password: secret123
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::PostgreSQL(config) => {
+                assert_eq!(config.host, "db.example.com");
+                assert_eq!(config.port, 5433);
+                assert_eq!(config.database, "my_production_db");
+                assert_eq!(config.username, "postgres");
+                assert_eq!(config.password.as_deref(), Some("secret123"));
+            }
+            _ => panic!("Expected PostgreSQL database"),
         }
     }
 
@@ -231,6 +268,7 @@ models:
             DatabaseConfig::MySQL(mysql_config) => {
                 assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
             }
+            _ => panic!("Expected MySQL database"),
         }
     }
 
@@ -266,6 +304,7 @@ models:
             DatabaseConfig::MySQL(mysql_config) => {
                 assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
             }
+            _ => panic!("Expected MySQL database"),
         }
     }
 
@@ -312,6 +351,39 @@ models:
                 assert_eq!(cfg.port, 3306);
                 assert_eq!(cfg.database, "");
             }
+            _ => panic!("Expected MySQL database"),
+        }
+    }
+
+    #[test]
+    fn parse_postgresql_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::PostgreSQL(config) => {
+                assert_eq!(config.host, "localhost");
+                assert_eq!(config.port, 5432);
+                assert_eq!(config.database, "app");
+                assert_eq!(config.username, "postgres");
+                assert!(config.password.is_none());
+            }
+            _ => panic!("Expected PostgreSQL database"),
         }
     }
 
@@ -339,6 +411,29 @@ models:
     }
 
     #[test]
+    fn database_config_type_name_returns_postgresql() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let database = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        assert_eq!(database.type_name(), "PostgreSQL");
+    }
+
+    #[test]
     fn parse_invalid_yaml_missing_type() {
         let yaml = r#"
 models:
@@ -360,7 +455,7 @@ models:
   my_app:
     databases:
       my_db:
-        type: postgresql
+        type: sqlite
 "#;
 
         let result = serde_yaml::from_str::<Config>(yaml);
