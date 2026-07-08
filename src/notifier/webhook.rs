@@ -39,3 +39,52 @@ fn build_http_client() -> Result<Client, String> {
         .build()
         .map_err(|error| format!("Failed to create notification HTTP client: {error}"))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::thread;
+
+    #[test]
+    fn post_json_sends_payload_to_http_endpoint() {
+        let (url, handle) = spawn_one_request_server("HTTP/1.1 204 No Content\r\n\r\n");
+        let payload = serde_json::json!({ "content": "hello" });
+
+        post_json(&url, &payload, "Test").unwrap();
+
+        let request = handle.join().unwrap();
+        assert!(request.starts_with("POST / HTTP/1.1"));
+        assert!(request.contains("application/json"));
+        assert!(request.contains(r#"{"content":"hello"}"#));
+    }
+
+    #[test]
+    fn post_json_returns_http_error_body() {
+        let (url, handle) = spawn_one_request_server(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 6\r\n\r\nbroken",
+        );
+        let payload = serde_json::json!({ "content": "hello" });
+
+        let error = post_json(&url, &payload, "Test").unwrap_err();
+
+        handle.join().unwrap();
+        assert!(error.contains("HTTP status 500 Internal Server Error"));
+        assert!(error.contains("broken"));
+    }
+
+    fn spawn_one_request_server(response: &'static str) -> (String, thread::JoinHandle<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut buffer = [0_u8; 8192];
+            let read_count = stream.read(&mut buffer).unwrap();
+            stream.write_all(response.as_bytes()).unwrap();
+            String::from_utf8_lossy(&buffer[..read_count]).into_owned()
+        });
+
+        (format!("http://{address}"), handle)
+    }
+}

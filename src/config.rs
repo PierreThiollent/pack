@@ -1077,6 +1077,22 @@ models:
     }
 
     #[test]
+    fn pack_example_yml_stays_parseable() {
+        let example_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("pack.example.yml");
+        let yaml = std::fs::read_to_string(example_path).unwrap();
+        let yaml = yaml
+            .replace("$DISCORD_WEBHOOK_URL", "https://example.com/discord")
+            .replace("$SLACK_WEBHOOK_URL", "https://example.com/slack")
+            .replace("$SMTP_USERNAME", "pack@example.com")
+            .replace("$SMTP_PASSWORD", "secret");
+
+        let config: Config = serde_yaml::from_str(&yaml).unwrap();
+
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
     fn validate_named_key_accepts_safe_names() {
         for key in ["my_app", "wordpress-prod", "client42"] {
             assert!(

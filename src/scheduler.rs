@@ -46,7 +46,7 @@ pub async fn run_foreground(config: Config) -> Result<(), String> {
         "Received shutdown signal, stopping scheduler..."
     );
 
-    if backup_semaphore.available_permits() == 0 {
+    if backup_is_running(&backup_semaphore) {
         info!(
             pack_tag = %tag(LogTag::Run),
             "Shutdown requested, waiting for current backup to finish..."
@@ -59,6 +59,10 @@ pub async fn run_foreground(config: Config) -> Result<(), String> {
         .map_err(|error| format!("Failed to stop scheduler: {error}"))?;
 
     Ok(())
+}
+
+fn backup_is_running(backup_semaphore: &Semaphore) -> bool {
+    backup_semaphore.available_permits() == 0
 }
 
 async fn register_cron_jobs(
@@ -217,6 +221,18 @@ fn schedule_description(schedule: &ScheduleConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backup_is_running_tracks_semaphore_permit() {
+        let semaphore = Semaphore::new(1);
+        assert!(!backup_is_running(&semaphore));
+
+        let permit = semaphore.try_acquire().unwrap();
+        assert!(backup_is_running(&semaphore));
+
+        drop(permit);
+        assert!(!backup_is_running(&semaphore));
+    }
 
     #[test]
     fn schedule_description_formats_cron_schedule() {
