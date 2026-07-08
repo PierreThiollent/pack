@@ -12,6 +12,13 @@ models:
         database: myapp_prod
         username: root
         password: s3cr3t
+      ma_db_postgresql:
+        type: postgresql
+        host: localhost
+        port: 5432
+        database: myapp_prod
+        username: postgres
+        password: s3cr3t
     archive:
       includes:
         - ~/Documents/myapp
@@ -62,6 +69,18 @@ models:
       sftp:
         type: sftp
         host: sftp.example.com
+        port: 22
+        timeout: 300
+        path: /backups
+        username: pack
+        password: secret
+        keep: 3
+        # Alternative authentication method:
+        # private_key: ~/.ssh/id_rsa
+        # passphrase: secret-passphrase
+      scp:
+        type: scp
+        host: scp.example.com
         port: 22
         timeout: 300
         path: /backups

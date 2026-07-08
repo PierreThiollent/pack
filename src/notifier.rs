@@ -141,11 +141,120 @@ pub fn notify_model(model: &Model, event: &NotificationEvent) {
             "Sending notification"
         );
 
+        if let Err(error) = notifier_config.validate(&event.model_name, notifier_name) {
+            warn!(
+                pack_tag = %tag(LogTag::Notifier(notifier_name)),
+                "Invalid notifier config: {error}"
+            );
+            continue;
+        }
+
         if let Err(error) = notifier_config.send(event) {
             warn!(
                 pack_tag = %tag(LogTag::Notifier(notifier_name)),
                 "Failed to send notification: {error}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Model;
+    use std::collections::HashMap;
+
+    #[test]
+    fn notify_model_skips_invalid_notifier_without_failing() {
+        let notifier = parse_notifier(
+            r#"
+type: discord
+url: ""
+"#,
+        );
+        let model = model_with_notifier(notifier);
+        let event = NotificationEvent::success("my_app");
+
+        notify_model(&model, &event);
+    }
+
+    #[test]
+    fn notify_model_skips_success_when_notifier_disables_success_events() {
+        let notifier = parse_notifier(
+            r#"
+type: discord
+url: http://127.0.0.1:9/unreachable
+on_success: false
+on_failure: true
+"#,
+        );
+        let model = model_with_notifier(notifier);
+        let event = NotificationEvent::success("my_app");
+
+        notify_model(&model, &event);
+    }
+
+    #[test]
+    fn notify_model_skips_failure_when_notifier_disables_failure_events() {
+        let notifier = parse_notifier(
+            r#"
+type: discord
+url: http://127.0.0.1:9/unreachable
+on_success: true
+on_failure: false
+"#,
+        );
+        let model = model_with_notifier(notifier);
+        let event = NotificationEvent::failure("my_app", "boom");
+
+        notify_model(&model, &event);
+    }
+
+    #[test]
+    fn notify_model_keeps_webhook_http_error_non_fatal() {
+        let (url, handle) = spawn_one_request_server(
+            "HTTP/1.1 500 Internal Server Error\r\nContent-Length: 6\r\n\r\nbroken",
+        );
+        let notifier = parse_notifier(&format!(
+            r#"
+type: discord
+url: {url}
+"#
+        ));
+        let model = model_with_notifier(notifier);
+        let event = NotificationEvent::success("my_app");
+
+        notify_model(&model, &event);
+
+        handle.join().unwrap();
+    }
+
+    fn parse_notifier(yaml: &str) -> NotifierConfig {
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    fn model_with_notifier(notifier: NotifierConfig) -> Model {
+        Model {
+            schedule: None,
+            databases: HashMap::new(),
+            storages: HashMap::new(),
+            notifiers: HashMap::from([("discord".to_string(), notifier)]),
+            archive: None,
+            compress_with: None,
+        }
+    }
+
+    fn spawn_one_request_server(response: &'static str) -> (String, std::thread::JoinHandle<()>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            use std::io::{Read, Write};
+            let mut buffer = [0_u8; 1024];
+            let _bytes_read = stream.read(&mut buffer).unwrap();
+            stream.write_all(response.as_bytes()).unwrap();
+        });
+
+        (format!("http://{address}"), handle)
     }
 }

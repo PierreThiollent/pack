@@ -14,6 +14,7 @@ use tracing_subscriber::fmt::writer::MakeWriter;
 use tracing_subscriber::registry::LookupSpan;
 
 const TAG_FIELD_NAME: &str = "pack_tag";
+const DEFAULT_LOG_FILTER: &str = "info,tokio_cron_scheduler=warn";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogTag<'a> {
@@ -33,6 +34,7 @@ pub enum LogTag<'a> {
     Local,
     Ftp,
     Sftp,
+    Scp,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,7 +102,8 @@ struct LogWriter {
 pub fn init(destination: LogDestination) -> Result<(), String> {
     let colors_enabled = destination.writes_to_console() && detect_colors_enabled();
     let writer_factory = LogWriterFactory::new(destination)?;
-    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(DEFAULT_LOG_FILTER));
     let timer = LocalTime::new(format_description!(
         "[year]-[month]-[day] [hour]:[minute]:[second] [offset_hour sign:mandatory]:[offset_minute]"
     ));
@@ -401,6 +404,7 @@ fn tag_text(log_tag: LogTag<'_>) -> String {
         LogTag::Local => "[Local]".to_string(),
         LogTag::Ftp => "[FTP]".to_string(),
         LogTag::Sftp => "[SFTP]".to_string(),
+        LogTag::Scp => "[SCP]".to_string(),
     }
 }
 
@@ -412,6 +416,7 @@ fn tag_color_from_text(text: &str) -> LogColor {
         || text.starts_with("[Notifier:")
         || text.starts_with("[FTP]")
         || text.starts_with("[SFTP]")
+        || text.starts_with("[SCP]")
     {
         LogColor::Cyan
     } else if text.starts_with("[Run]") {
@@ -550,5 +555,10 @@ mod tests {
         let buffer = b"\x1b[32m INFO\x1b[0m [Run] hello\n";
 
         assert_eq!(strip_ansi_codes(buffer), b" INFO [Run] hello\n");
+    }
+
+    #[test]
+    fn default_filter_hides_tokio_cron_scheduler_info_logs() {
+        assert_eq!(DEFAULT_LOG_FILTER, "info,tokio_cron_scheduler=warn");
     }
 }

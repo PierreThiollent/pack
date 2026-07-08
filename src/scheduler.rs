@@ -30,7 +30,7 @@ pub async fn run_foreground(config: Config) -> Result<(), String> {
         .await
         .map_err(|error| format!("Failed to create scheduler: {error}"))?;
 
-    register_cron_jobs(&scheduler, Arc::new(config)).await?;
+    let backup_semaphore = register_cron_jobs(&scheduler, Arc::new(config)).await?;
 
     scheduler
         .start()
@@ -46,6 +46,13 @@ pub async fn run_foreground(config: Config) -> Result<(), String> {
         "Received shutdown signal, stopping scheduler..."
     );
 
+    if backup_is_running(&backup_semaphore) {
+        info!(
+            pack_tag = %tag(LogTag::Run),
+            "Shutdown requested, waiting for current backup to finish..."
+        );
+    }
+
     scheduler
         .shutdown()
         .await
@@ -54,7 +61,14 @@ pub async fn run_foreground(config: Config) -> Result<(), String> {
     Ok(())
 }
 
-async fn register_cron_jobs(scheduler: &JobScheduler, config: Arc<Config>) -> Result<(), String> {
+fn backup_is_running(backup_semaphore: &Semaphore) -> bool {
+    backup_semaphore.available_permits() == 0
+}
+
+async fn register_cron_jobs(
+    scheduler: &JobScheduler,
+    config: Arc<Config>,
+) -> Result<Arc<Semaphore>, String> {
     let backup_semaphore = Arc::new(Semaphore::new(1));
 
     for (model_name, cron) in scheduled_cron_models(&config) {
@@ -121,7 +135,7 @@ async fn register_cron_jobs(scheduler: &JobScheduler, config: Arc<Config>) -> Re
         );
     }
 
-    Ok(())
+    Ok(backup_semaphore)
 }
 
 async fn wait_for_shutdown_signal() -> Result<(), String> {
@@ -207,6 +221,18 @@ fn schedule_description(schedule: &ScheduleConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn backup_is_running_tracks_semaphore_permit() {
+        let semaphore = Semaphore::new(1);
+        assert!(!backup_is_running(&semaphore));
+
+        let permit = semaphore.try_acquire().unwrap();
+        assert!(backup_is_running(&semaphore));
+
+        drop(permit);
+        assert!(!backup_is_running(&semaphore));
+    }
 
     #[test]
     fn schedule_description_formats_cron_schedule() {

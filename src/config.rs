@@ -54,18 +54,29 @@ pub fn resolve_config_path(config_arg: Option<String>) -> String {
     paths::expand_tilde(&path)
 }
 
-pub(crate) fn validate_model_name(model_name: &str) -> Result<(), String> {
-    if model_name.is_empty() {
-        return Err("Model name cannot be empty".to_string());
+pub(crate) fn validate_named_key(kind: &str, key: &str) -> Result<(), String> {
+    if key.is_empty() {
+        return Err(format!("{kind} name cannot be empty"));
     }
 
-    if !model_name
+    if !key
         .chars()
         .all(|character| character.is_ascii_alphanumeric() || matches!(character, '_' | '-'))
     {
         return Err(format!(
-            "Invalid model name `{model_name}`: use only ASCII letters, digits, `_` and `-`"
+            "Invalid {kind} name `{key}`: use only ASCII letters, digits, `_` and `-`"
         ));
+    }
+
+    Ok(())
+}
+
+fn validate_named_keys<'a>(
+    kind: &str,
+    keys: impl Iterator<Item = &'a String>,
+) -> Result<(), String> {
+    for key in keys {
+        validate_named_key(kind, key)?;
     }
 
     Ok(())
@@ -110,12 +121,12 @@ pub fn load_config(path: &str) -> Config {
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
-    for (model_name, model) in &config.models {
-        validate_model_name(model_name)?;
+    validate_named_keys("model", config.models.keys())?;
 
-        for (notifier_name, notifier_config) in &model.notifiers {
-            notifier_config.validate(model_name, notifier_name)?;
-        }
+    for model in config.models.values() {
+        validate_named_keys("database", model.databases.keys())?;
+        validate_named_keys("storage", model.storages.keys())?;
+        validate_named_keys("notifier", model.notifiers.keys())?;
     }
 
     Ok(())
@@ -196,6 +207,43 @@ models:
                 assert_eq!(cfg.username, "root");
                 assert_eq!(cfg.password.as_deref(), Some("secret123"));
             }
+            _ => panic!("Expected MySQL database"),
+        }
+    }
+
+    #[test]
+    fn parse_postgresql_with_all_fields() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+        host: db.example.com
+        port: 5433
+        database: my_production_db
+        username: postgres
+        password: secret123
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::PostgreSQL(config) => {
+                assert_eq!(config.host, "db.example.com");
+                assert_eq!(config.port, 5433);
+                assert_eq!(config.database, "my_production_db");
+                assert_eq!(config.username, "postgres");
+                assert_eq!(config.password.as_deref(), Some("secret123"));
+            }
+            _ => panic!("Expected PostgreSQL database"),
         }
     }
 
@@ -231,6 +279,7 @@ models:
             DatabaseConfig::MySQL(mysql_config) => {
                 assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
             }
+            _ => panic!("Expected MySQL database"),
         }
     }
 
@@ -266,6 +315,7 @@ models:
             DatabaseConfig::MySQL(mysql_config) => {
                 assert_eq!(mysql_config.password.as_deref(), Some("secret123"));
             }
+            _ => panic!("Expected MySQL database"),
         }
     }
 
@@ -312,6 +362,39 @@ models:
                 assert_eq!(cfg.port, 3306);
                 assert_eq!(cfg.database, "");
             }
+            _ => panic!("Expected MySQL database"),
+        }
+    }
+
+    #[test]
+    fn parse_postgresql_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let db = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        match db {
+            DatabaseConfig::PostgreSQL(config) => {
+                assert_eq!(config.host, "localhost");
+                assert_eq!(config.port, 5432);
+                assert_eq!(config.database, "app");
+                assert_eq!(config.username, "postgres");
+                assert!(config.password.is_none());
+            }
+            _ => panic!("Expected PostgreSQL database"),
         }
     }
 
@@ -339,6 +422,29 @@ models:
     }
 
     #[test]
+    fn database_config_type_name_returns_postgresql() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      my_db:
+        type: postgresql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let database = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .databases
+            .get("my_db")
+            .unwrap();
+
+        assert_eq!(database.type_name(), "PostgreSQL");
+    }
+
+    #[test]
     fn parse_invalid_yaml_missing_type() {
         let yaml = r#"
 models:
@@ -360,7 +466,7 @@ models:
   my_app:
     databases:
       my_db:
-        type: postgresql
+        type: sqlite
 "#;
 
         let result = serde_yaml::from_str::<Config>(yaml);
@@ -407,7 +513,7 @@ models:
                 assert_eq!(local_config.path, "~/Desktop/pack-backups");
                 assert_eq!(local_config.keep, 3);
             }
-            StorageConfig::Ftp(_) | StorageConfig::Sftp(_) => panic!("Expected local storage"),
+            _ => panic!("Expected local storage"),
         }
     }
 
@@ -451,7 +557,7 @@ models:
                 assert!(ftp_config.no_check_certificate);
                 assert_eq!(ftp_config.keep, 4);
             }
-            StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
+            _ => panic!("Expected FTP storage"),
         }
     }
 
@@ -486,7 +592,7 @@ models:
                 assert!(!ftp_config.no_check_certificate);
                 assert_eq!(ftp_config.keep, 0);
             }
-            StorageConfig::Local(_) | StorageConfig::Sftp(_) => panic!("Expected FTP storage"),
+            _ => panic!("Expected FTP storage"),
         }
     }
 
@@ -530,7 +636,7 @@ models:
                 assert_eq!(sftp_config.passphrase.as_deref(), Some("key-passphrase"));
                 assert_eq!(sftp_config.keep, 5);
             }
-            StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
+            _ => panic!("Expected SFTP storage"),
         }
     }
 
@@ -566,7 +672,87 @@ models:
                 assert!(sftp_config.passphrase.is_none());
                 assert_eq!(sftp_config.keep, 0);
             }
-            StorageConfig::Local(_) | StorageConfig::Ftp(_) => panic!("Expected SFTP storage"),
+            _ => panic!("Expected SFTP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_scp_storage_with_all_fields() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: scp
+        host: scp.example.com
+        port: 2222
+        timeout: 30
+        path: /backup1/foo
+        username: user1
+        password: pass1
+        private_key: ~/.ssh/id_rsa
+        passphrase: key-passphrase
+        keep: 6
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Scp(scp_config) => {
+                assert_eq!(scp_config.host, "scp.example.com");
+                assert_eq!(scp_config.port, 2222);
+                assert_eq!(scp_config.timeout, 30);
+                assert_eq!(scp_config.path, "/backup1/foo");
+                assert_eq!(scp_config.username, "user1");
+                assert_eq!(scp_config.password.as_deref(), Some("pass1"));
+                assert_eq!(scp_config.private_key.as_deref(), Some("~/.ssh/id_rsa"));
+                assert_eq!(scp_config.passphrase.as_deref(), Some("key-passphrase"));
+                assert_eq!(scp_config.keep, 6);
+            }
+            _ => panic!("Expected SCP storage"),
+        }
+    }
+
+    #[test]
+    fn parse_scp_storage_with_defaults() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      remote:
+        type: scp
+        host: scp.example.com
+        username: user1
+        password: pass1
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let storage = config
+            .models
+            .get("my_app")
+            .unwrap()
+            .storages
+            .get("remote")
+            .unwrap();
+
+        match storage {
+            StorageConfig::Scp(scp_config) => {
+                assert_eq!(scp_config.port, 22);
+                assert_eq!(scp_config.timeout, 300);
+                assert_eq!(scp_config.path, "/");
+                assert_eq!(scp_config.password.as_deref(), Some("pass1"));
+                assert!(scp_config.private_key.is_none());
+                assert!(scp_config.passphrase.is_none());
+                assert_eq!(scp_config.keep, 0);
+            }
+            _ => panic!("Expected SCP storage"),
         }
     }
 
@@ -803,11 +989,19 @@ foo: bar
     }
 
     #[test]
-    fn validate_config_accepts_safe_model_names() {
+    fn validate_config_accepts_safe_named_keys() {
         let yaml = r#"
 models:
   my_app:
-    databases: {}
+    databases:
+      main-db:
+        type: mysql
+        database: app
+    storages:
+      local_backup:
+        type: local
+        path: /tmp/backups
+    notifiers: {}
   wordpress-prod:
     databases: {}
 "#;
@@ -832,23 +1026,90 @@ models:
     }
 
     #[test]
-    fn validate_model_name_accepts_safe_names() {
-        for model_name in ["my_app", "wordpress-prod", "client42"] {
+    fn validate_config_rejects_unsafe_database_names() {
+        let yaml = r#"
+models:
+  my_app:
+    databases:
+      ../escaped:
+        type: mysql
+        database: app
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid database name"));
+    }
+
+    #[test]
+    fn validate_config_rejects_unsafe_storage_names() {
+        let yaml = r#"
+models:
+  my_app:
+    storages:
+      ../escaped:
+        type: local
+        path: /tmp/backups
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid storage name"));
+    }
+
+    #[test]
+    fn validate_config_rejects_unsafe_notifier_names() {
+        let yaml = r#"
+models:
+  my_app:
+    notifiers:
+      ../escaped:
+        type: discord
+        url: https://example.com/webhook
+"#;
+
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let error = validate_config(&config).unwrap_err();
+
+        assert!(error.contains("Invalid notifier name"));
+    }
+
+    #[test]
+    fn pack_example_yml_stays_parseable() {
+        let example_path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("pack.example.yml");
+        let yaml = std::fs::read_to_string(example_path).unwrap();
+        let yaml = yaml
+            .replace("$DISCORD_WEBHOOK_URL", "https://example.com/discord")
+            .replace("$SLACK_WEBHOOK_URL", "https://example.com/slack")
+            .replace("$SMTP_USERNAME", "pack@example.com")
+            .replace("$SMTP_PASSWORD", "secret");
+
+        let config: Config = serde_yaml::from_str(&yaml).unwrap();
+
+        validate_config(&config).unwrap();
+    }
+
+    #[test]
+    fn validate_named_key_accepts_safe_names() {
+        for key in ["my_app", "wordpress-prod", "client42"] {
             assert!(
-                validate_model_name(model_name).is_ok(),
-                "Model name should be accepted: {model_name}"
+                validate_named_key("model", key).is_ok(),
+                "Named key should be accepted: {key}"
             );
         }
     }
 
     #[test]
-    fn validate_model_name_rejects_unsafe_names() {
-        for model_name in [
+    fn validate_named_key_rejects_unsafe_names() {
+        for key in [
             "", "../foo", "foo/bar", "foo\\bar", ".hidden", "my.app", "my app",
         ] {
             assert!(
-                validate_model_name(model_name).is_err(),
-                "Model name should be rejected: {model_name}"
+                validate_named_key("model", key).is_err(),
+                "Named key should be rejected: {key}"
             );
         }
     }

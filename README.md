@@ -54,7 +54,9 @@ cp target/release/pack /usr/local/bin/
 Requirements:
 
 - Rust 2024 edition.
-- Database client tools installed on the machine, for example `mysqldump` for MySQL backups.
+- Database client tools installed on the machine:
+  - `mysqldump` for MySQL backups;
+  - `pg_dump` for PostgreSQL backups.
 
 ## Quick start
 
@@ -191,6 +193,25 @@ databases:
 ```
 
 `database` is required. `host` defaults to `localhost`, `port` defaults to `3306`, and `username` defaults to `root`.
+
+MySQL backups use the external `mysqldump` binary. It must be installed and available in the `PATH` used by `pack` or by the daemon when running with `pack start`.
+
+### PostgreSQL
+
+```yml
+databases:
+  postgresql:
+    type: postgresql
+    host: localhost
+    port: 5432
+    database: myapp_prod
+    username: backup
+    password: secret
+```
+
+`database` is required. `host` defaults to `localhost`, `port` defaults to `5432`, and `username` defaults to `postgres`.
+
+PostgreSQL backups use the external `pg_dump` binary. It must be installed and available in the `PATH` used by `pack` or by the daemon when running with `pack start`.
 
 ## Archive
 
@@ -351,6 +372,54 @@ Defaults:
 `passphrase` is only valid with `private_key` authentication.
 
 For SFTP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
+
+### SCP
+
+Password authentication:
+
+```yml
+storages:
+  scp:
+    type: scp
+    host: scp.example.com
+    port: 22
+    timeout: 300
+    path: backups/my_site
+    username: pack
+    password: secret
+    keep: 7
+```
+
+Private key authentication:
+
+```yml
+storages:
+  scp:
+    type: scp
+    host: scp.example.com
+    port: 22
+    timeout: 300
+    path: backups/my_site
+    username: pack
+    private_key: ~/.ssh/id_rsa
+    passphrase: optional-passphrase
+    keep: 7
+```
+
+Required fields: `host`, `username`, and at least one authentication method: `password` or `private_key`.
+
+Defaults:
+
+- `port`: `22`
+- `timeout`: `300` seconds
+- `path`: `/`
+- `keep`: `0`
+
+`passphrase` is only valid with `private_key` authentication.
+
+SCP uses an SSH connection internally, creates the remote directory with `mkdir -p`, uploads the artifact with SCP, then uses the same SSH connection for retention deletes.
+
+For SCP, `path: backups/my_site` is relative to the login directory, while `path: /backups/my_site` is an absolute server path. On shared hosting, relative paths are often the safer choice.
 
 ## Retention / cycler
 

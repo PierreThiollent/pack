@@ -1,6 +1,6 @@
 use crate::archive;
 use crate::compressor;
-use crate::config::{Config, Model, validate_model_name};
+use crate::config::{Config, Model, validate_named_key};
 use crate::cycler::{self, Cycler};
 use crate::database;
 use crate::logging::{LogTag, tag};
@@ -190,7 +190,7 @@ fn create_run_directory(workdir: Option<&str>) -> Result<TempDir, String> {
 ///
 /// Path: `{run_directory}/{model_name}/`
 fn create_dump_directory(run_directory: &Path, model_name: &str) -> Result<PathBuf, String> {
-    validate_model_name(model_name)?;
+    validate_named_key("model", model_name)?;
 
     let directory = run_directory.join(model_name);
 

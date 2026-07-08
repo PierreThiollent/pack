@@ -2,11 +2,15 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 fn clean_test_cycler_state() {
+    clean_cycler_state("my_app", "local");
+}
+
+fn clean_cycler_state(model_name: &str, storage_name: &str) {
     let home = std::env::var("HOME").expect("HOME should be set for CLI tests");
     let path = PathBuf::from(home)
         .join(".pack")
         .join("cycler")
-        .join("my_app_local.json");
+        .join(format!("{model_name}_{storage_name}.json"));
 
     if path.exists() {
         std::fs::remove_file(path).expect("Failed to clean up test cycler state");
@@ -179,6 +183,149 @@ fn load_missing_config_file_errors() {
         stderr.contains("Failed to read config file"),
         "Should show file error. stdout:\n{}",
         String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+#[test]
+fn load_config_with_unsafe_named_key_errors() {
+    let workspace = tempfile::tempdir().unwrap();
+    let included_file = workspace.path().join("included.txt");
+    let storage_directory = workspace.path().join("backups");
+    let config_path = workspace.path().join("pack.yml");
+
+    std::fs::write(&included_file, "included content").unwrap();
+
+    let config_content = format!(
+        r#"
+workdir: {workdir}
+models:
+  my_app:
+    databases: {{}}
+    archive:
+      includes:
+        - {included_file}
+    storages:
+      ../escaped:
+        type: local
+        path: {storage_directory}
+"#,
+        workdir = workspace.path().display(),
+        included_file = included_file.display(),
+        storage_directory = storage_directory.display()
+    );
+    std::fs::write(&config_path, config_content).unwrap();
+
+    let output = run_pack(&["perform", "-c", &config_path.to_string_lossy()]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "pack should exit with error on unsafe YAML keys"
+    );
+    assert!(
+        stderr.contains("Invalid storage name"),
+        "Should show validation error. stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
+    );
+}
+
+#[test]
+fn local_storage_retention_keeps_only_latest_artifact() {
+    let model_name = "retention_app";
+    let storage_name = "local";
+    clean_cycler_state(model_name, storage_name);
+
+    let workspace = tempfile::tempdir().unwrap();
+    let included_file = workspace.path().join("included.txt");
+    let storage_directory = workspace.path().join("backups");
+    let config_path = workspace.path().join("pack.yml");
+
+    std::fs::write(&included_file, "first content").unwrap();
+
+    let config_content = format!(
+        r#"
+workdir: {workdir}
+models:
+  {model_name}:
+    databases: {{}}
+    archive:
+      includes:
+        - {included_file}
+    compress_with:
+      type: tgz
+    storages:
+      {storage_name}:
+        type: local
+        path: {storage_directory}
+        keep: 1
+"#,
+        workdir = workspace.path().display(),
+        included_file = included_file.display(),
+        storage_directory = storage_directory.display()
+    );
+    std::fs::write(&config_path, config_content).unwrap();
+
+    let first_output = run_pack(&["perform", "-c", &config_path.to_string_lossy()]);
+    assert!(
+        first_output.status.success(),
+        "first run should exit successfully. stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&first_output.stdout),
+        String::from_utf8_lossy(&first_output.stderr)
+    );
+
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    std::fs::write(&included_file, "second content").unwrap();
+
+    let second_output = run_pack(&["perform", "-c", &config_path.to_string_lossy()]);
+    assert!(
+        second_output.status.success(),
+        "second run should exit successfully. stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&second_output.stdout),
+        String::from_utf8_lossy(&second_output.stderr)
+    );
+
+    let artifacts = tar_gz_files_in(&storage_directory);
+    assert_eq!(
+        artifacts.len(),
+        1,
+        "Expected retention to keep one artifact"
+    );
+
+    clean_cycler_state(model_name, storage_name);
+}
+
+#[test]
+fn load_config_with_missing_environment_variable_errors() {
+    let workspace = tempfile::tempdir().unwrap();
+    let config_path = workspace.path().join("pack.yml");
+
+    std::fs::write(
+        &config_path,
+        r#"
+models:
+  my_app:
+    databases: {}
+    archive:
+      includes:
+        - $PACK_TEST_VARIABLE_THAT_SHOULD_NOT_EXIST
+    storages: {}
+"#,
+    )
+    .unwrap();
+
+    let output = run_pack(&["perform", "-c", &config_path.to_string_lossy()]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "pack should exit with error when an environment variable is missing"
+    );
+    assert!(
+        stderr.contains("Failed to expand environment variables"),
+        "Should show environment expansion error. stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        stderr
     );
 }
 
