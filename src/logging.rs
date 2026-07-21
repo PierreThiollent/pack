@@ -1,7 +1,7 @@
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use time::macros::format_description;
@@ -229,8 +229,8 @@ fn strip_ansi_codes(buffer: &[u8]) -> Vec<u8> {
     result
 }
 
-fn open_log_file(path: &PathBuf) -> Result<LogFile, String> {
-    LogFile::open(path.clone())
+fn open_log_file(path: &Path) -> Result<LogFile, String> {
+    LogFile::open(path.to_path_buf())
 }
 
 struct LogFile {
@@ -310,7 +310,7 @@ impl LogFile {
     }
 }
 
-fn open_log_file_append(path: &PathBuf) -> Result<File, String> {
+fn open_log_file_append(path: &Path) -> Result<File, String> {
     OpenOptions::new()
         .create(true)
         .append(true)
@@ -318,7 +318,7 @@ fn open_log_file_append(path: &PathBuf) -> Result<File, String> {
         .map_err(|error| format!("Failed to open log file {path:?}: {error}"))
 }
 
-fn rotated_log_path(path: &PathBuf, index: u8) -> PathBuf {
+fn rotated_log_path(path: &Path, index: u8) -> PathBuf {
     PathBuf::from(format!("{}.{}", path.display(), index))
 }
 
