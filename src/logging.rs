@@ -2,6 +2,7 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use time::macros::format_description;
 use tracing::field::{Field, Visit};
@@ -15,6 +16,7 @@ use tracing_subscriber::registry::LookupSpan;
 
 const TAG_FIELD_NAME: &str = "pack_tag";
 const DEFAULT_LOG_FILTER: &str = "info,tokio_cron_scheduler=warn";
+static LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
 const LOG_FILE_MAX_SIZE_BYTES: u64 = 10 * 1024 * 1024;
 const LOG_FILE_MAX_BACKUPS: u8 = 5;
 
@@ -115,8 +117,21 @@ pub fn init(destination: LogDestination) -> Result<(), String> {
         .event_format(CliFormatter::new(timer, colors_enabled))
         .with_writer(writer_factory)
         .init();
+    LOGGING_INITIALIZED.store(true, Ordering::SeqCst);
 
     Ok(())
+}
+
+pub fn log_final_cli_error(error: &str) {
+    if is_initialized() {
+        tracing::error!(pack_tag = %tag(LogTag::Run), "{error}");
+    } else {
+        eprintln!("{error}");
+    }
+}
+
+fn is_initialized() -> bool {
+    LOGGING_INITIALIZED.load(Ordering::SeqCst)
 }
 
 pub fn tag(log_tag: LogTag<'_>) -> TagDisplay<'_> {
@@ -641,6 +656,11 @@ mod tests {
     #[test]
     fn default_filter_hides_tokio_cron_scheduler_info_logs() {
         assert_eq!(DEFAULT_LOG_FILTER, "info,tokio_cron_scheduler=warn");
+    }
+
+    #[test]
+    fn logging_starts_uninitialized() {
+        assert!(!is_initialized());
     }
 
     #[test]

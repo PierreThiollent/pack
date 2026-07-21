@@ -49,7 +49,7 @@ fn main() {
     };
 
     if let Err(error) = result {
-        eprintln!("{error}");
+        logging::log_final_cli_error(&error);
         std::process::exit(1);
     }
 }

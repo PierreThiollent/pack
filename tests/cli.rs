@@ -187,6 +187,43 @@ fn load_missing_config_file_errors() {
 }
 
 #[test]
+fn final_cli_errors_are_logged_with_tracing() {
+    let workspace = tempfile::tempdir().unwrap();
+    let missing_include = workspace.path().join("missing.txt");
+    let storage_directory = workspace.path().join("backups");
+    let config_path = workspace.path().join("pack.yml");
+
+    let config_content = format!(
+        r#"
+models:
+  my_app:
+    databases: {{}}
+    archive:
+      includes:
+        - {missing_include}
+    storages:
+      local:
+        type: local
+        path: {storage_directory}
+"#,
+        missing_include = missing_include.display(),
+        storage_directory = storage_directory.display()
+    );
+    std::fs::write(&config_path, config_content).unwrap();
+
+    let output = run_pack(&["perform", "-c", &config_path.to_string_lossy()]);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(!output.status.success(), "pack should exit with error");
+    assert!(
+        stderr.contains("ERROR")
+            && stderr.contains("[Run]")
+            && stderr.contains("Failed to run backup"),
+        "Final CLI error should use tracing with level and tag. stderr:\n{stderr}"
+    );
+}
+
+#[test]
 fn load_config_with_unsafe_named_key_errors() {
     let workspace = tempfile::tempdir().unwrap();
     let included_file = workspace.path().join("included.txt");
