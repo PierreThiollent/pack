@@ -23,6 +23,7 @@ shellexpand = "3"
 tokio = { version = "1.52.3", features = ["macros", "rt-multi-thread", "signal", "time"] }
 tokio-cron-scheduler = "0.15.1"
 daemonize = "0.5.0"
+nix = { version = "0.30", features = ["signal", "process"] }
 
 [profile.release]
 strip = true

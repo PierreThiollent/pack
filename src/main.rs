@@ -12,7 +12,7 @@ mod scheduler;
 mod storage;
 
 use clap::{CommandFactory, Parser, Subcommand};
-use daemon::DaemonProcess;
+use daemon::{DaemonProcess, StopOutcome};
 use logging::{LogDestination, LogTag, tag};
 use tracing::info;
 
@@ -36,6 +36,8 @@ enum Commands {
     Run,
     /// Start the scheduler in the background
     Start,
+    /// Stop the scheduler running in the background
+    Stop,
 }
 
 fn main() {
@@ -45,6 +47,7 @@ fn main() {
         Some(Commands::Perform) => perform_backups_now(cli.config),
         Some(Commands::Run) => run_scheduler_foreground(cli.config),
         Some(Commands::Start) => start_scheduler_daemon(cli.config),
+        Some(Commands::Stop) => stop_scheduler_daemon(),
         None => print_help(),
     };
 
@@ -98,6 +101,37 @@ fn start_scheduler_daemon(config_arg: Option<String>) -> Result<(), String> {
             run_scheduler(config)
         }
     }
+}
+
+fn stop_scheduler_daemon() -> Result<(), String> {
+    let pid_file_path = paths::pack_pid_file_path();
+    match daemon::stop(&pid_file_path)? {
+        StopOutcome::NotRunning => {
+            println!("Pack daemon is not running.");
+        }
+        StopOutcome::InvalidPidFileRemoved => {
+            println!(
+                "Pack daemon PID file was invalid and has been removed: {}",
+                pid_file_path.display()
+            );
+        }
+        StopOutcome::StalePidFileRemoved { pid } => {
+            println!(
+                "Pack daemon is not running. Removed stale PID file for process {pid}: {}",
+                pid_file_path.display()
+            );
+        }
+        StopOutcome::Stopped { pid } => {
+            println!("Pack daemon stopped (PID {pid}).");
+        }
+        StopOutcome::StopRequested { pid } => {
+            println!(
+                "Stop signal sent to Pack daemon (PID {pid}), but it is still running. It may be waiting for the current backup to finish."
+            );
+        }
+    }
+
+    Ok(())
 }
 
 // Create Tokio after daemonization so the child does not inherit a pre-fork runtime.
@@ -163,5 +197,11 @@ mod tests {
     fn cli_start_subcommand_succeeds() {
         let cli = Cli::try_parse_from(["pack", "start"]).unwrap();
         assert!(matches!(cli.command, Some(Commands::Start)));
+    }
+
+    #[test]
+    fn cli_stop_subcommand_succeeds() {
+        let cli = Cli::try_parse_from(["pack", "stop"]).unwrap();
+        assert!(matches!(cli.command, Some(Commands::Stop)));
     }
 }
