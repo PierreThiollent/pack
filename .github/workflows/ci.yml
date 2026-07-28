@@ -55,3 +55,14 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+
+  docker:
+    name: Docker smoke test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Docker smoke test
+        run: scripts/docker-smoke-test.sh

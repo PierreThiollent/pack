@@ -71,6 +71,40 @@ Requirements:
   - `mysqldump` for MySQL backups;
   - `pg_dump` for PostgreSQL backups.
 
+### Docker
+
+Build the Alpine-based image from source:
+
+```bash
+docker build -t pack:local .
+```
+
+The image includes Pack, a MariaDB-compatible `mysqldump` client, `pg_dump`, CA certificates, timezone data, OpenSSL, and libssh2. It runs as the non-root `pack` user with UID and GID `10001`.
+
+The default container command is:
+
+```text
+pack run --config /etc/pack/pack.yml
+```
+
+Mount the paths needed by your backup configuration:
+
+| Container path | Purpose | Recommended mount |
+| --- | --- | --- |
+| `/etc/pack/pack.yml` | Pack configuration | Read-only file |
+| `/home/pack/.pack` | Logs and retention state | Persistent volume |
+| `/source` | Application files to archive | Read-only directory |
+| `/backups` | Local backup artifacts | Persistent volume |
+| `/tmp` | Temporary dump and archive files | Ephemeral storage |
+
+For example, check the image locally with:
+
+```bash
+docker run --rm pack:local --version
+```
+
+The Dockerfile does not declare volumes automatically. Configure them explicitly with Docker Compose or `docker run`. When using bind mounts for writable paths, ensure UID/GID `10001` can write to the host directory.
+
 ## Quick start
 
 Create a config file:
@@ -662,6 +696,7 @@ RUST_LOG=warn pack perform
 cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
+scripts/docker-smoke-test.sh
 ```
 
 ## License
