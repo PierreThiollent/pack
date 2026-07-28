@@ -73,7 +73,21 @@ Requirements:
 
 ### Docker
 
-Build the Alpine-based image from source:
+Official images are published for Linux amd64 and arm64 on GHCR. Pin the complete version in production:
+
+```bash
+docker pull ghcr.io/pierrethiollent/pack:0.5.0
+docker run --rm ghcr.io/pierrethiollent/pack:0.5.0 --version
+```
+
+Docker tags follow this policy:
+
+- `0.5.0` identifies one immutable release and is recommended for reproducible deployments;
+- `0.5` moves to the latest stable patch release in the `0.5` series;
+- `latest` moves to the latest stable release;
+- prereleases only receive their complete version tag and never update the minor tag or `latest`.
+
+You can also build the Alpine-based image from source:
 
 ```bash
 docker build -t pack:local .

@@ -19,8 +19,12 @@ cat > "${temporary_directory}/pack.yml" <<'EOF'
 models: {}
 EOF
 
-echo "Building ${image_name}"
-docker build --tag "${image_name}" .
+if [ "${PACK_DOCKER_SKIP_BUILD:-0}" = "1" ]; then
+  echo "Using pre-built image ${image_name}"
+else
+  echo "Building ${image_name}"
+  docker build --tag "${image_name}" .
+fi
 
 echo "Checking Pack and database clients"
 docker run --rm "${image_name}" --version
