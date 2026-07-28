@@ -45,6 +45,12 @@ jobs:
           - os: ubuntu-latest
             expected_arch: x86_64
             asset_name: pack-linux-amd64.tar.gz
+          - os: ubuntu-24.04-arm
+            expected_arch: aarch64
+            asset_name: pack-linux-arm64.tar.gz
+          - os: macos-15-intel
+            expected_arch: x86_64
+            asset_name: pack-darwin-amd64.tar.gz
           - os: macos-14
             expected_arch: arm64
             asset_name: pack-darwin-arm64.tar.gz
@@ -71,6 +77,9 @@ jobs:
 
       - name: Build release binary
         run: cargo build --release --locked
+
+      - name: Verify release binary
+        run: target/release/pack --version
 
       - name: Package release asset
         run: tar -czf "${{ matrix.asset_name }}" -C target/release pack

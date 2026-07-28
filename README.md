@@ -26,6 +26,19 @@ It dumps databases, archives files, compresses everything into timestamped artif
 
 ## Installation
 
+### Supported platforms
+
+Official release binaries are available for the following platforms:
+
+| Operating system | Architecture | Release archive |
+| --- | --- | --- |
+| Linux | amd64 | `pack-linux-amd64.tar.gz` |
+| Linux | arm64 | `pack-linux-arm64.tar.gz` |
+| macOS | amd64 (Intel) | `pack-darwin-amd64.tar.gz` |
+| macOS | arm64 (Apple Silicon) | `pack-darwin-arm64.tar.gz` |
+
+Windows is not supported.
+
 Install the latest release:
 
 ```bash
