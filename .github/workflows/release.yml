@@ -112,6 +112,7 @@ jobs:
         with:
           body_path: RELEASE_CHANGELOG.md
           files: ${{ matrix.asset_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
 
   docker-publish:
     name: Publish Docker image
