@@ -28,7 +28,14 @@ fi
 
 echo "Checking Pack and database clients"
 docker run --rm "${image_name}" --version
-docker run --rm --entrypoint mysqldump "${image_name}" --version
+mysqldump_version="$(docker run --rm --entrypoint mysqldump "${image_name}" --version)"
+echo "${mysqldump_version}"
+case "${mysqldump_version}" in
+  *MariaDB*)
+    echo "Expected the official MySQL mysqldump client, got MariaDB" >&2
+    exit 1
+    ;;
+esac
 docker run --rm --entrypoint pg_dump "${image_name}" --version
 
 echo "Checking the non-root runtime contract"

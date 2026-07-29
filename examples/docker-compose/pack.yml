@@ -12,6 +12,13 @@ models:
         database: $POSTGRES_DB
         username: $POSTGRES_USER
         password: $POSTGRES_PASSWORD
+      mysql:
+        type: mysql
+        host: mysql
+        port: 3306
+        database: $MYSQL_DATABASE
+        username: $MYSQL_USER
+        password: $MYSQL_PASSWORD
     archive:
       includes:
         - /source/application/uploads

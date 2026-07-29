@@ -3,22 +3,24 @@
 This example shows how Pack can back up the following resources in a single model:
 
 - a PostgreSQL database running in a `database` container;
+- a MySQL 8.4 database running in a `mysql` container;
 - persistent files produced by an `application` container;
 - the final artifact in a separate local volume;
 - Pack's retention state in another persistent volume.
 
-The `application` and `database` containers are intentionally simple. They represent services from an existing project without requiring a specific framework.
+The `application`, `database`, and `mysql` containers are intentionally simple. They represent services from an existing project without requiring a specific framework.
 
 ## Architecture
 
 ```text
 application ── application_data volume ──(read-only)── Pack
 database ───── Compose network ─────────────────────── Pack
+mysql ──────── Compose network ─────────────────────── Pack
                                                      ├── pack_backups
                                                      └── pack_state
 ```
 
-Pack connects to PostgreSQL through the `database` service name. Inside a container, `localhost` refers to that container itself and cannot be used to reach another service.
+Pack connects to PostgreSQL through the `database` service name and to MySQL through the `mysql` service name. Inside a container, `localhost` refers to that container itself and cannot be used to reach another service.
 
 ## Start the example
 
@@ -100,26 +102,11 @@ Source code recoverable from Git, reproducible dependencies, and caches generall
 
 Pack runs with UID/GID `10001`. Bind mounts used for `/backups` or `/home/pack/.pack` must be writable by this user.
 
-## Adapt it to another database
+## Adapt database backups
 
-The `database_data` volume contains PostgreSQL's internal files. Do not mount this volume into Pack or archive it while PostgreSQL is running: copying live internal files can produce an inconsistent backup that is difficult to restore.
+The `database_data` volume contains PostgreSQL's internal files, and `mysql_data` contains MySQL's internal files. Do not mount these volumes into Pack or archive them while the databases are running: copying live internal files can produce an inconsistent backup that is difficult to restore.
 
-This example uses `pg_dump` over the Docker network to create a consistent logical dump. For MySQL, keep the same architecture and update the configuration:
-
-```yaml
-models:
-  application:
-    databases:
-      mysql:
-        type: mysql
-        host: database
-        port: 3306
-        database: $MYSQL_DATABASE
-        username: $MYSQL_USER
-        password: $MYSQL_PASSWORD
-```
-
-The `database` host must match the database service name in your own Compose file.
+This example uses `pg_dump` and `mysqldump` over the Docker network to create consistent logical dumps. The database hosts in `pack.yml` must match the database service names in your own Compose file.
 
 ## Persistence and graceful shutdown
 
@@ -131,6 +118,7 @@ Each volume has a separate responsibility:
 | `pack_state` | `/home/pack/.pack` | Logs and retention cycler state |
 | `pack_backups` | `/backups` | Local storage artifacts |
 | `database_data` | none | PostgreSQL internal files |
+| `mysql_data` | none | MySQL internal files |
 
 `stop_grace_period: 10m` gives Pack time to finish an active backup after receiving SIGTERM. Adjust this duration to the maximum expected backup time.
 
@@ -166,4 +154,4 @@ From the repository root, the same example is used by the Docker pipeline test:
 scripts/docker-compose-example-test.sh
 ```
 
-The test initializes PostgreSQL and the application files, runs `pack perform`, and verifies that the artifact contains both expected markers.
+The test initializes PostgreSQL, MySQL, and the application files, runs `pack perform`, and verifies that the artifact contains every expected marker.

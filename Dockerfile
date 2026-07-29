@@ -33,7 +33,7 @@ FROM ubuntu:${UBUNTU_VERSION} AS runtime-base
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
         ca-certificates \
-        default-mysql-client \
+        mysql-client \
         gzip \
         libssh2-1 \
         openssl \

@@ -10,6 +10,10 @@ export PACK_IMAGE="${image_name}"
 export POSTGRES_DB="pack_example"
 export POSTGRES_USER="pack_example"
 export POSTGRES_PASSWORD="pack_example_password"
+export MYSQL_ROOT_PASSWORD="pack_example_root_password"
+export MYSQL_DATABASE="pack_example_mysql"
+export MYSQL_USER="pack_example_mysql"
+export MYSQL_PASSWORD="pack_example_mysql_password"
 
 compose() {
   docker compose --project-name "${project_name}" --file "${compose_file}" "$@"
@@ -36,8 +40,8 @@ else
   docker build --tag "${image_name}" .
 fi
 
-echo "Starting the example application and database"
-compose up --detach --wait application database
+echo "Starting the example application and databases"
+compose up --detach --wait application database mysql
 
 echo "Running the Pack pipeline"
 compose run --rm --no-deps pack perform --config /etc/pack/pack.yml
@@ -52,9 +56,13 @@ compose run --rm --no-deps --entrypoint /bin/sh pack -c '
   artifact_path="$1"
   test -f "${artifact_path}"
 
-  database_dump_path="application/${POSTGRES_DB}.sql"
-  tar -xOzf "${artifact_path}" "${database_dump_path}" \
+  postgresql_dump_path="application/${POSTGRES_DB}.sql"
+  tar -xOzf "${artifact_path}" "${postgresql_dump_path}" \
     | grep -q "pack_database_marker"
+
+  mysql_dump_path="application/${MYSQL_DATABASE}.sql"
+  tar -xOzf "${artifact_path}" "${mysql_dump_path}" \
+    | grep -q "pack_mysql_database_marker"
 
   tar -xOzf "${artifact_path}" application/archive.tar > /tmp/application-files.tar
   tar -xOf /tmp/application-files.tar archive/source/application/uploads/example-document.txt \

@@ -28,12 +28,33 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
     volumes:
       - database_data:/var/lib/postgresql
-      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 2s
       timeout: 5s
       retries: 15
+
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-application}
+      MYSQL_USER: ${MYSQL_USER:-application}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping --host=127.0.0.1 --user=root --password=$${MYSQL_ROOT_PASSWORD} --silent",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
 
   pack:
     image: ${PACK_IMAGE:-ghcr.io/pierrethiollent/pack:latest}
@@ -44,6 +65,9 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-application}
       POSTGRES_USER: ${POSTGRES_USER:-application}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-application}
+      MYSQL_USER: ${MYSQL_USER:-application}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-change-me}
       SFTP_HOST: ${SFTP_HOST:-}
       SFTP_PORT: ${SFTP_PORT:-22}
       SFTP_PATH: ${SFTP_PATH:-/backups/application}
@@ -54,6 +78,8 @@ services:
         condition: service_healthy
       database:
         condition: service_healthy
+      mysql:
+        condition: service_healthy
     volumes:
       - ./pack.yml:/etc/pack/pack.yml:ro
       - application_data:/source/application:ro
@@ -63,5 +89,6 @@ services:
 volumes:
   application_data:
   database_data:
+  mysql_data:
   pack_state:
   pack_backups:
