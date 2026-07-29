@@ -1,0 +1,33 @@
+workdir: /tmp
+
+models:
+  application:
+    schedule:
+      cron: "0 0 4 * * *"
+    databases:
+      postgresql:
+        type: postgresql
+        host: database
+        port: 5432
+        database: $POSTGRES_DB
+        username: $POSTGRES_USER
+        password: $POSTGRES_PASSWORD
+    archive:
+      includes:
+        - /source/application/uploads
+    compress_with:
+      type: tgz
+    storages:
+      local:
+        type: local
+        path: /backups
+        keep: 7
+      # Uncomment this storage after configuring the SFTP variables in .env.
+      # offsite:
+      #   type: sftp
+      #   host: $SFTP_HOST
+      #   port: $SFTP_PORT
+      #   path: $SFTP_PATH
+      #   username: $SFTP_USERNAME
+      #   password: $SFTP_PASSWORD
+      #   keep: 30

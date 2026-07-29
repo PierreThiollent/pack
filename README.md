@@ -26,6 +26,19 @@ It dumps databases, archives files, compresses everything into timestamped artif
 
 ## Installation
 
+### Supported platforms
+
+Official release binaries are available for the following platforms:
+
+| Operating system | Architecture | Release archive |
+| --- | --- | --- |
+| Linux | amd64 | `pack-linux-amd64.tar.gz` |
+| Linux | arm64 | `pack-linux-arm64.tar.gz` |
+| macOS | amd64 (Intel) | `pack-darwin-amd64.tar.gz` |
+| macOS | arm64 (Apple Silicon) | `pack-darwin-arm64.tar.gz` |
+
+Windows is not supported.
+
 Install the latest release:
 
 ```bash
@@ -57,6 +70,58 @@ Requirements:
 - Database client tools installed on the machine:
   - `mysqldump` for MySQL backups;
   - `pg_dump` for PostgreSQL backups.
+
+### Docker
+
+Official images are published for Linux amd64 and arm64 on GHCR. Pin the complete version in production:
+
+```bash
+docker pull ghcr.io/pierrethiollent/pack:0.5.0
+docker run --rm ghcr.io/pierrethiollent/pack:0.5.0 --version
+```
+
+Docker tags follow this policy:
+
+- `0.5.0` identifies one immutable release and is recommended for reproducible deployments;
+- `0.5` moves to the latest stable patch release in the `0.5` series;
+- `latest` moves to the latest stable release;
+- prereleases only receive their complete version tag and never update the minor tag or `latest`.
+
+You can also build the Alpine-based image from source:
+
+```bash
+docker build -t pack:local .
+```
+
+The image includes Pack, a MariaDB-compatible `mysqldump` client, `pg_dump`, CA certificates, timezone data, OpenSSL, and libssh2. It runs as the non-root `pack` user with UID and GID `10001`.
+
+The default container command is:
+
+```text
+pack run --config /etc/pack/pack.yml
+```
+
+Mount the paths needed by your backup configuration:
+
+| Container path | Purpose | Recommended mount |
+| --- | --- | --- |
+| `/etc/pack/pack.yml` | Pack configuration | Read-only file |
+| `/home/pack/.pack` | Logs and retention state | Persistent volume |
+| `/source` | Application files to archive | Read-only directory |
+| `/backups` | Local backup artifacts | Persistent volume |
+| `/tmp` | Temporary dump and archive files | Ephemeral storage |
+
+For example, check the image locally with:
+
+```bash
+docker run --rm pack:local --version
+```
+
+The Dockerfile does not declare volumes automatically. Configure them explicitly with Docker Compose or `docker run`. When using bind mounts for writable paths, ensure UID/GID `10001` can write to the host directory.
+
+### Docker Compose example
+
+The [`examples/docker-compose`](examples/docker-compose) directory contains a runnable, adaptable example showing how to back up a containerized database and persistent files from another application.
 
 ## Quick start
 
@@ -649,6 +714,8 @@ RUST_LOG=warn pack perform
 cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
+scripts/docker-smoke-test.sh
+scripts/docker-compose-example-test.sh
 ```
 
 ## License

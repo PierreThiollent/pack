@@ -6,16 +6,32 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  changelog:
-    name: Generate release changelog
+  validate-release:
+    name: Validate release version
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
+
+      - name: Verify source release version
+        run: scripts/verify-release-version.sh "${GITHUB_REF_NAME}"
+
+  changelog:
+    name: Generate release changelog
+    runs-on: ubuntu-latest
+    needs: validate-release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -37,6 +53,8 @@ jobs:
     name: Release (${{ matrix.asset_name }})
     runs-on: ${{ matrix.os }}
     needs: changelog
+    permissions:
+      contents: write
 
     strategy:
       fail-fast: false
@@ -45,13 +63,19 @@ jobs:
           - os: ubuntu-latest
             expected_arch: x86_64
             asset_name: pack-linux-amd64.tar.gz
+          - os: ubuntu-24.04-arm
+            expected_arch: aarch64
+            asset_name: pack-linux-arm64.tar.gz
+          - os: macos-15-intel
+            expected_arch: x86_64
+            asset_name: pack-darwin-amd64.tar.gz
           - os: macos-14
             expected_arch: arm64
             asset_name: pack-darwin-arm64.tar.gz
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -72,6 +96,9 @@ jobs:
       - name: Build release binary
         run: cargo build --release --locked
 
+      - name: Verify release binary
+        run: target/release/pack --version
+
       - name: Package release asset
         run: tar -czf "${{ matrix.asset_name }}" -C target/release pack
 
@@ -85,3 +112,110 @@ jobs:
         with:
           body_path: RELEASE_CHANGELOG.md
           files: ${{ matrix.asset_name }}
+
+  docker-test:
+    name: Test release image
+    runs-on: ubuntu-latest
+    needs: validate-release
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build release test image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: pack:release-test
+          build-args: PACK_VERSION=${{ github.ref_name }}
+          cache-from: type=gha,scope=docker-release
+          cache-to: type=gha,mode=max,scope=docker-release
+
+      - name: Run Docker smoke test
+        env:
+          PACK_DOCKER_SKIP_BUILD: "1"
+        run: scripts/docker-smoke-test.sh pack:release-test
+
+      - name: Verify image release version
+        run: scripts/verify-release-version.sh "${GITHUB_REF_NAME}" pack:release-test
+
+  docker-publish:
+    name: Publish Docker image
+    runs-on: ubuntu-latest
+    needs:
+      - release
+      - docker-test
+    permissions:
+      contents: read
+      packages: write
+
+    env:
+      IMAGE_NAME: ghcr.io/pierrethiollent/pack
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Protect immutable release tag
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          image_reference="${IMAGE_NAME}:${release_version}"
+          if docker buildx imagetools inspect "${image_reference}" >/dev/null 2>&1; then
+            echo "Immutable image tag already exists: ${image_reference}" >&2
+            exit 1
+          fi
+
+      - name: Generate Docker metadata
+        id: metadata
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}},enable=${{ !contains(github.ref_name, '-') }}
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+          labels: |
+            org.opencontainers.image.licenses=MIT
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.metadata.outputs.tags }}
+          labels: ${{ steps.metadata.outputs.labels }}
+          build-args: PACK_VERSION=${{ github.ref_name }}
+          cache-from: type=gha,scope=docker-release
+          cache-to: type=gha,mode=max,scope=docker-release
+          provenance: mode=max
+          sbom: true
+
+      - name: Verify multi-architecture manifest
+        run: |
+          release_version="${GITHUB_REF_NAME#v}"
+          image_reference="${IMAGE_NAME}:${release_version}"
+          manifest="$(docker buildx imagetools inspect "${image_reference}")"
+          printf '%s\n' "${manifest}"
+          printf '%s\n' "${manifest}" | grep -q 'linux/amd64'
+          printf '%s\n' "${manifest}" | grep -q 'linux/arm64'
+          echo "Published ${image_reference} with digest ${{ steps.build.outputs.digest }}"

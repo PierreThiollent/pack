@@ -1,0 +1,67 @@
+services:
+  application:
+    image: alpine:3.23
+    command:
+      - /bin/sh
+      - -c
+      - |
+        mkdir -p /data/uploads
+        if [ ! -f /data/uploads/example-document.txt ]; then
+          printf '%s\n' 'pack_application_marker' > /data/uploads/example-document.txt
+        fi
+        exec tail -f /dev/null
+    restart: unless-stopped
+    volumes:
+      - application_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /data/uploads/example-document.txt"]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  database:
+    image: postgres:18.4-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-application}
+      POSTGRES_USER: ${POSTGRES_USER:-application}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+    volumes:
+      - database_data:/var/lib/postgresql
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+
+  pack:
+    image: ${PACK_IMAGE:-ghcr.io/pierrethiollent/pack:latest}
+    command: ["run", "--config", "/etc/pack/pack.yml"]
+    restart: unless-stopped
+    stop_grace_period: 10m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-application}
+      POSTGRES_USER: ${POSTGRES_USER:-application}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+      SFTP_HOST: ${SFTP_HOST:-}
+      SFTP_PORT: ${SFTP_PORT:-22}
+      SFTP_PATH: ${SFTP_PATH:-/backups/application}
+      SFTP_USERNAME: ${SFTP_USERNAME:-}
+      SFTP_PASSWORD: ${SFTP_PASSWORD:-}
+    depends_on:
+      application:
+        condition: service_healthy
+      database:
+        condition: service_healthy
+    volumes:
+      - ./pack.yml:/etc/pack/pack.yml:ro
+      - application_data:/source/application:ro
+      - pack_state:/home/pack/.pack
+      - pack_backups:/backups
+
+volumes:
+  application_data:
+  database_data:
+  pack_state:
+  pack_backups:

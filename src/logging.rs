@@ -1,7 +1,8 @@
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, IsTerminal, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use time::macros::format_description;
 use tracing::field::{Field, Visit};
@@ -15,6 +16,9 @@ use tracing_subscriber::registry::LookupSpan;
 
 const TAG_FIELD_NAME: &str = "pack_tag";
 const DEFAULT_LOG_FILTER: &str = "info,tokio_cron_scheduler=warn";
+static LOGGING_INITIALIZED: AtomicBool = AtomicBool::new(false);
+const LOG_FILE_MAX_SIZE_BYTES: u64 = 10 * 1024 * 1024;
+const LOG_FILE_MAX_BACKUPS: u8 = 5;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogTag<'a> {
@@ -87,7 +91,7 @@ pub enum LogDestination {
 #[derive(Clone)]
 struct LogWriterFactory {
     destination: LogDestination,
-    file: Option<Arc<Mutex<File>>>,
+    file: Option<Arc<Mutex<LogFile>>>,
 }
 
 /// Concrete writer used by `tracing_subscriber` for one log event.
@@ -96,7 +100,7 @@ struct LogWriterFactory {
 /// depending on the selected `LogDestination`.
 struct LogWriter {
     write_to_console: bool,
-    file: Option<Arc<Mutex<File>>>,
+    file: Option<Arc<Mutex<LogFile>>>,
 }
 
 pub fn init(destination: LogDestination) -> Result<(), String> {
@@ -113,8 +117,21 @@ pub fn init(destination: LogDestination) -> Result<(), String> {
         .event_format(CliFormatter::new(timer, colors_enabled))
         .with_writer(writer_factory)
         .init();
+    LOGGING_INITIALIZED.store(true, Ordering::SeqCst);
 
     Ok(())
+}
+
+pub fn log_final_cli_error(error: &str) {
+    if is_initialized() {
+        tracing::error!(pack_tag = %tag(LogTag::Run), "{error}");
+    } else {
+        eprintln!("{error}");
+    }
+}
+
+fn is_initialized() -> bool {
+    LOGGING_INITIALIZED.load(Ordering::SeqCst)
 }
 
 pub fn tag(log_tag: LogTag<'_>) -> TagDisplay<'_> {
@@ -212,18 +229,97 @@ fn strip_ansi_codes(buffer: &[u8]) -> Vec<u8> {
     result
 }
 
-fn open_log_file(path: &PathBuf) -> Result<File, String> {
-    if let Some(parent_directory) = path.parent() {
-        fs::create_dir_all(parent_directory).map_err(|error| {
-            format!("Failed to create log directory {parent_directory:?}: {error}")
-        })?;
+fn open_log_file(path: &Path) -> Result<LogFile, String> {
+    LogFile::open(path.to_path_buf())
+}
+
+struct LogFile {
+    path: PathBuf,
+    file: File,
+    max_size_bytes: u64,
+    max_backups: u8,
+}
+
+impl LogFile {
+    fn open(path: PathBuf) -> Result<Self, String> {
+        Self::open_internal(path, LOG_FILE_MAX_SIZE_BYTES, LOG_FILE_MAX_BACKUPS)
     }
 
+    #[cfg(test)]
+    fn open_with_limits(
+        path: PathBuf,
+        max_size_bytes: u64,
+        max_backups: u8,
+    ) -> Result<Self, String> {
+        Self::open_internal(path, max_size_bytes, max_backups)
+    }
+
+    fn open_internal(path: PathBuf, max_size_bytes: u64, max_backups: u8) -> Result<Self, String> {
+        if let Some(parent_directory) = path.parent() {
+            fs::create_dir_all(parent_directory).map_err(|error| {
+                format!("Failed to create log directory {parent_directory:?}: {error}")
+            })?;
+        }
+
+        let file = open_log_file_append(&path)?;
+
+        Ok(Self {
+            path,
+            file,
+            max_size_bytes,
+            max_backups,
+        })
+    }
+
+    fn write_all(&mut self, buffer: &[u8]) -> io::Result<()> {
+        self.rotate_if_needed(buffer.len() as u64)?;
+        self.file.write_all(buffer)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
+    }
+
+    fn rotate_if_needed(&mut self, incoming_size: u64) -> io::Result<()> {
+        let current_size = self.file.metadata()?.len();
+        if current_size + incoming_size <= self.max_size_bytes {
+            return Ok(());
+        }
+
+        self.file.flush()?;
+
+        for index in (1..=self.max_backups).rev() {
+            let rotated_path = rotated_log_path(&self.path, index);
+            if !rotated_path.exists() {
+                continue;
+            }
+
+            if index == self.max_backups {
+                fs::remove_file(&rotated_path)?;
+            } else {
+                fs::rename(rotated_path, rotated_log_path(&self.path, index + 1))?;
+            }
+        }
+
+        if self.path.exists() {
+            fs::rename(&self.path, rotated_log_path(&self.path, 1))?;
+        }
+
+        self.file = open_log_file_append(&self.path).map_err(io::Error::other)?;
+        Ok(())
+    }
+}
+
+fn open_log_file_append(path: &Path) -> Result<File, String> {
     OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(|error| format!("Failed to open log file {path:?}: {error}"))
+}
+
+fn rotated_log_path(path: &Path, index: u8) -> PathBuf {
+    PathBuf::from(format!("{}.{}", path.display(), index))
 }
 
 impl<T> CliFormatter<T>
@@ -560,5 +656,58 @@ mod tests {
     #[test]
     fn default_filter_hides_tokio_cron_scheduler_info_logs() {
         assert_eq!(DEFAULT_LOG_FILTER, "info,tokio_cron_scheduler=warn");
+    }
+
+    #[test]
+    fn logging_starts_uninitialized() {
+        assert!(!is_initialized());
+    }
+
+    #[test]
+    fn log_rotation_uses_expected_defaults() {
+        assert_eq!(LOG_FILE_MAX_SIZE_BYTES, 10 * 1024 * 1024);
+        assert_eq!(LOG_FILE_MAX_BACKUPS, 5);
+    }
+
+    #[test]
+    fn rotating_log_file_rotates_when_size_limit_is_reached() {
+        let temporary_directory = tempfile::tempdir().unwrap();
+        let log_path = temporary_directory.path().join("pack.log");
+        let mut log_file = LogFile::open_with_limits(log_path.clone(), 10, 5).unwrap();
+
+        log_file.write_all(b"12345").unwrap();
+        log_file.write_all(b"67890").unwrap();
+        log_file.write_all(b"abc").unwrap();
+        log_file.flush().unwrap();
+
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), "abc");
+        assert_eq!(
+            fs::read_to_string(rotated_log_path(&log_path, 1)).unwrap(),
+            "1234567890"
+        );
+    }
+
+    #[test]
+    fn rotating_log_file_keeps_configured_backup_count() {
+        let temporary_directory = tempfile::tempdir().unwrap();
+        let log_path = temporary_directory.path().join("pack.log");
+        let mut log_file = LogFile::open_with_limits(log_path.clone(), 1, 2).unwrap();
+
+        log_file.write_all(b"a").unwrap();
+        log_file.write_all(b"b").unwrap();
+        log_file.write_all(b"c").unwrap();
+        log_file.write_all(b"d").unwrap();
+        log_file.flush().unwrap();
+
+        assert_eq!(fs::read_to_string(&log_path).unwrap(), "d");
+        assert_eq!(
+            fs::read_to_string(rotated_log_path(&log_path, 1)).unwrap(),
+            "c"
+        );
+        assert_eq!(
+            fs::read_to_string(rotated_log_path(&log_path, 2)).unwrap(),
+            "b"
+        );
+        assert!(!rotated_log_path(&log_path, 3).exists());
     }
 }
