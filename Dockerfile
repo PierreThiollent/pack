@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 ARG ALPINE_VERSION=3.23
-ARG DEBIAN_VERSION=bookworm
+ARG UBUNTU_VERSION=24.04
 ARG RUST_VERSION=1.96
 
 FROM rust:${RUST_VERSION}-alpine${ALPINE_VERSION} AS builder
@@ -28,7 +28,7 @@ RUN cargo build --release --locked \
         test "$(target/release/pack --version)" = "pack ${PACK_VERSION#v}"; \
     fi
 
-FROM debian:${DEBIAN_VERSION}-slim AS runtime-base
+FROM ubuntu:${UBUNTU_VERSION} AS runtime-base
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends \
