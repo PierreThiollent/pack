@@ -76,13 +76,13 @@ Requirements:
 Official images are published for Linux amd64 and arm64 on GHCR. Pin the complete version in production:
 
 ```bash
-docker pull ghcr.io/pierrethiollent/pack:0.5.0
-docker run --rm ghcr.io/pierrethiollent/pack:0.5.0 --version
+docker pull ghcr.io/pierrethiollent/pack:0.5.1
+docker run --rm ghcr.io/pierrethiollent/pack:0.5.1 --version
 ```
 
 Docker tags follow this policy:
 
-- `0.5.0` identifies one immutable release and is recommended for reproducible deployments;
+- `0.5.1` identifies one immutable release and is recommended for reproducible deployments;
 - `0.5` moves to the latest stable patch release in the `0.5` series;
 - `latest` moves to the latest stable release;
 - prereleases only receive their complete version tag and never update the minor tag or `latest`.
@@ -93,7 +93,7 @@ You can also build the Alpine-based image from source:
 docker build -t pack:local .
 ```
 
-The image includes Pack, a MariaDB-compatible `mysqldump` client, `pg_dump`, CA certificates, timezone data, OpenSSL, and libssh2. It runs as the non-root `pack` user with UID and GID `10001`.
+The image includes Pack, the official MySQL `mysqldump` client, `pg_dump`, CA certificates, timezone data, OpenSSL, and libssh2. It runs as the non-root `pack` user with UID and GID `10001`.
 
 The default container command is:
 
