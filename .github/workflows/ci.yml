@@ -57,7 +57,7 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
 
   docker:
-    name: Docker smoke test
+    name: Docker tests
     runs-on: ubuntu-latest
 
     steps:
@@ -66,3 +66,8 @@ jobs:
 
       - name: Run Docker smoke test
         run: scripts/docker-smoke-test.sh
+
+      - name: Run Docker Compose example test
+        env:
+          PACK_DOCKER_SKIP_BUILD: "1"
+        run: scripts/docker-compose-example-test.sh pack:smoke-test

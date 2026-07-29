@@ -119,6 +119,10 @@ docker run --rm pack:local --version
 
 The Dockerfile does not declare volumes automatically. Configure them explicitly with Docker Compose or `docker run`. When using bind mounts for writable paths, ensure UID/GID `10001` can write to the host directory.
 
+### Docker Compose example
+
+The [`examples/docker-compose`](examples/docker-compose) directory contains a runnable, adaptable example showing how to back up a containerized database and persistent files from another application.
+
 ## Quick start
 
 Create a config file:
@@ -711,6 +715,7 @@ cargo fmt
 cargo test
 cargo clippy --all-targets -- -D warnings
 scripts/docker-smoke-test.sh
+scripts/docker-compose-example-test.sh
 ```
 
 ## License
