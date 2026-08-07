@@ -230,6 +230,31 @@ A `model` is one backup unit. It usually maps to one application.
 
 Model names must only contain letters, digits, `_`, or `-`.
 
+### Environment variables
+
+Values in the configuration file can reference environment variables with `$VAR` or `${VAR}`. Pack expands them right after reading the file and before parsing the YAML, so they work in any string field.
+
+```yml
+models:
+  my_site:
+    databases:
+      mysql:
+        type: mysql
+        host: localhost
+        database: myapp_prod
+        username: backup
+        password: $MYSQL_PASSWORD
+```
+
+Set the variable before running Pack:
+
+```sh
+export MYSQL_PASSWORD='secret'
+pack perform
+```
+
+If a referenced variable is not set, Pack refuses to start and prints a configuration error instead of silently substituting an empty value. This lets you keep secrets (database passwords, FTP/SFTP/SCP credentials, notification webhook URLs, SMTP credentials) out of the configuration file, for example in a secret manager, in an environment file, or in Docker Compose `environment` blocks.
+
 ### Temporary work directory
 
 `workdir` controls where temporary files are written. If it is not set, the system temporary directory is used.
@@ -671,10 +696,28 @@ The daemon PID is written to:
 Stop the daemon with:
 
 ```bash
+pack stop
+```
+
+or manually:
+
+```bash
 kill $(cat ~/.pack/pack.pid)
 ```
 
 `pack start` keeps the launch directory as the daemon working directory, so relative paths behave like they do with `pack run` when both commands are launched from the same directory.
+
+### `pack stop`
+
+Stops the background daemon started with `pack start`.
+
+`pack stop` reads the PID from `~/.pack/pack.pid`, sends a stop signal to the daemon, and removes the PID file once the daemon has exited:
+
+```bash
+pack stop
+```
+
+If the daemon is not running, `pack stop` reports it and exits cleanly. If the daemon is in the middle of a scheduled backup, the stop signal is sent but the daemon keeps running until the current backup finishes; `pack stop` reports this without failing.
 
 ## Logs
 
